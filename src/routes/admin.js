@@ -1,0 +1,416 @@
+import crypto from 'node:crypto';
+import { Router } from 'express';
+import { db, now, audit } from '../db.js';
+import { requireAdmin, publicUser, hashPassword } from '../auth.js';
+import { config } from '../config.js';
+import * as dk from '../docker.js';
+import * as svc from '../instances.js';
+import * as sites from '../sites.js';
+import { publicInvite } from '../invites.js';
+import { refundPoints, spendPoints } from '../points.js';
+import { poolStats } from '../ports.js';
+import * as announcements from '../announcements.js';
+
+export const router = Router();
+router.use(requireAdmin);
+
+// ---------- overview ----------
+router.get('/overview', async (req, res) => {
+  const users = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+  const instances = db.prepare('SELECT COUNT(*) AS c FROM instances').get().c;
+  let docker = null;
+  let disk = null;
+  try {
+    docker = await dk.ping();
+    disk = await dk.diskUsage().catch(() => null);
+  } catch (err) {
+    docker = { error: err.message };
+  }
+  const siteRows = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(size_bytes), 0) AS b FROM sites').get();
+  const sleeping = db.prepare("SELECT COUNT(*) AS c FROM instances WHERE status = 'sleeping'").get().c;
+  const archived = db.prepare("SELECT COUNT(*) AS c FROM instances WHERE status = 'archived'").get().c;
+  res.json({
+    users,
+    instances,
+    sleeping,
+    archived,
+    sites: siteRows.c,
+    sitesBytes: siteRows.b,
+    ports: poolStats(),
+    docker,
+    disk,
+    config: {
+      publicHost: config.publicHost || null,
+      bindAddress: config.bindAddress,
+      publicPortOffset: config.publicPortOffset,
+      network: config.networkName,
+      sitesEnabled: config.sitesEnabled,
+      idleSleep: config.idleSleepEnabled ? `${config.idleMinutes} 分钟` : '未开启',
+    },
+  });
+});
+
+// ---------- static sites ----------
+router.get('/sites', (req, res) => {
+  res.json({ sites: sites.listSites(req.user, { all: true }) });
+});
+
+router.delete('/sites/:id', async (req, res) => {
+  const row = sites.getSite(req.params.id, req.user);
+  res.json({ ok: true, ...(await sites.destroySite(row, req.user)) });
+});
+
+// ---------- users ----------
+router.get('/users', (req, res) => {
+  const rows = db.prepare('SELECT * FROM users ORDER BY id').all();
+  res.json({
+    users: rows.map((u) => ({ ...publicUser(u), usage: svc.usage(u.id) })),
+  });
+});
+
+router.patch('/users/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+
+  const b = req.body || {};
+  const fields = {
+    max_instances: b.maxInstances,
+    max_memory_mb: b.maxMemoryMb,
+    max_cpus: b.maxCpus,
+    max_ports: b.maxPorts,
+    allow_custom_image: b.allowCustomImage === undefined ? undefined : b.allowCustomImage ? 1 : 0,
+    disabled: b.disabled === undefined ? undefined : b.disabled ? 1 : 0,
+    role: b.role === undefined ? undefined : b.role === 'admin' ? 'admin' : 'user',
+  };
+  if (fields.role === 'user' && user.role === 'admin') {
+    const admins = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get().c;
+    if (admins <= 1) return res.status(400).json({ error: '至少要保留一个管理员' });
+  }
+  for (const [col, val] of Object.entries(fields)) {
+    if (val === undefined) continue;
+    db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).run(val, id);
+  }
+  if (b.newPassword) {
+    if (String(b.newPassword).length < 8) return res.status(400).json({ error: '密码至少 8 位' });
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(b.newPassword)), id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+  }
+  // 直接改余额不走 UPDATE points 一把梳：差额过一遍 grant/refund，流水里才有这笔账。
+  if (b.points !== undefined) {
+    const target = Math.round(Number(b.points));
+    if (!Number.isFinite(target) || target < 0 || target > 10_000_000) {
+      return res.status(400).json({ error: '积分需在 0 - 10000000 之间' });
+    }
+    const delta = target - (user.points ?? 0);
+    if (delta > 0) refundPoints(id, delta, 'admin.adjust', req.user.username);
+    else if (delta < 0) {
+      // 扣到目标值；并发下别人刚花掉一笔导致余额不够就扣到 0 为止。
+      const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      spendPoints(fresh, Math.min(-delta, fresh.points ?? 0), 'admin.adjust', req.user.username);
+    }
+  }
+  // 停用不再顺手删会话：attachUser 已经拒绝把停用的行交给 req.user，会话留着
+  // 也拿不到任何东西，但留着 cookie 才能让对方看到停用页，而不是被静悄悄踢回
+  // 登录表单、以为自己密码记错了。重新启用后原来的登录状态也直接恢复。
+  // （改密码那条仍然清空会话——那是要把别处的登录踢下去。）
+
+  audit(req.user, 'admin.user_update', user.username, JSON.stringify(b));
+  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  res.json({ user: publicUser(updated) });
+});
+
+router.post('/users/:id/reset-checkin', (req, res) => {
+  const id = Number(req.params.id);
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  if (!user.last_checkin_date) return res.status(400).json({ error: '该用户今日尚未签到' });
+  db.prepare('UPDATE users SET last_checkin_date = NULL WHERE id = ?').run(id);
+  audit(req.user, 'admin.checkin_reset', user.username, null);
+  res.json({ ok: true });
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: '不能删除自己' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+
+  for (const row of db.prepare('SELECT * FROM instances WHERE user_id = ?').all(id)) {
+    await svc.destroy(row, req.user).catch(() => {});
+  }
+  // 送给他的券跟着人一起走（老库上 issued_to 没有外键，所以显式删）。
+  db.prepare('DELETE FROM invites WHERE issued_to = ?').run(id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  audit(req.user, 'admin.user_delete', user.username, null);
+  res.json({ ok: true });
+});
+
+// ---------- invites ----------
+router.get('/invites', (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT i.*, u.username AS creator FROM invites i
+       LEFT JOIN users u ON u.id = i.created_by ORDER BY i.created_at DESC`
+    )
+    .all();
+  res.json({ invites: rows });
+});
+
+router.post('/invites', (req, res) => {
+  const b = req.body || {};
+  const type = b.type === 'instance' ? 'instance' : b.type === 'points' ? 'points' : 'register';
+  const code = (b.code ? String(b.code).trim() : crypto.randomBytes(6).toString('hex')).slice(0, 64);
+  if (!/^[A-Za-z0-9_-]{4,64}$/.test(code)) return res.status(400).json({ error: '邀请码只能是 4-64 位字母数字、下划线或连字符' });
+  if (db.prepare('SELECT 1 FROM invites WHERE code = ?').get(code)) return res.status(400).json({ error: '邀请码已存在' });
+
+  const maxUses = Math.max(1, Math.min(1000, Number(b.maxUses) || 1));
+  const expiresAt = b.expiresInDays
+    ? new Date(Date.now() + Number(b.expiresInDays) * 86400_000).toISOString()
+    : null;
+
+  // 静态网页专用券：只能拿去发站点，所以端口恒为 0，额度默认就是站点的记账口径。
+  const scope = type === 'instance' && b.scope === 'site' ? 'site' : 'any';
+  const siteOnly = scope === 'site';
+
+  let memoryMb = null;
+  let cpus = null;
+  let ports = null;
+  // 积分兑换码：每次兑换给多少分。今后发福利的默认姿势 —— 用户兑成
+  // 积分自己决定花在站点还是实例上。
+  let points = null;
+  // 实例有效天数：留空 / 0 = 建出来的实例永久有效。静态网页券背后没有容器，
+  // 也就没有可封存的东西，所以这一项对它没有意义。
+  let instanceDays = null;
+  if (type === 'points') {
+    points = Math.round(Number(b.points));
+    if (!Number.isFinite(points) || points < 1 || points > 1_000_000) {
+      return res.status(400).json({ error: '兑换积分需在 1 - 1000000 之间' });
+    }
+  }
+  if (type === 'instance') {
+    memoryMb = Math.round(Number(b.memoryMb ?? (siteOnly ? config.siteMemoryMb : config.voucherDefaultMemoryMb)));
+    cpus = Number(b.cpus ?? (siteOnly ? config.siteCpus : config.voucherDefaultCpus));
+    ports = siteOnly ? 0 : Math.round(Number(b.ports ?? config.voucherDefaultPorts));
+    // 64MB 是「一个容器至少得给这么多」，对静态网页券没有意义 —— 它背后没有容器，
+    // 额度就是 SITE_MEMORY_MB 那个记账数，压到 32 甚至更小都是合理的。
+    const floor = siteOnly ? Math.min(64, config.siteMemoryMb) : 64;
+    if (!Number.isFinite(memoryMb) || memoryMb < floor || memoryMb > 262144)
+      return res.status(400).json({ error: `内存额度需在 ${floor}MB - 256GB 之间` });
+    if (!Number.isFinite(cpus) || cpus < 0.1 || cpus > 64)
+      return res.status(400).json({ error: 'CPU 额度需在 0.1 - 64 之间' });
+    if (!Number.isFinite(ports) || ports < 0 || ports > 32)
+      return res.status(400).json({ error: '端口额度需在 0 - 32 之间' });
+
+    if (!siteOnly && b.instanceDays !== undefined && b.instanceDays !== null && b.instanceDays !== '') {
+      const days = Math.round(Number(b.instanceDays));
+      if (!Number.isFinite(days) || days < 0 || days > 3650)
+        return res.status(400).json({ error: '实例有效天数需在 0 - 3650 之间（0 = 永久）' });
+      instanceDays = days > 0 ? days : null;
+    }
+  }
+
+  db.prepare(
+    `INSERT INTO invites (code, type, scope, created_by, note, max_uses, uses, memory_mb, cpus, ports,
+       allow_custom_image, instance_days, points, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    code,
+    type,
+    scope,
+    req.user.id,
+    String(b.note || ''),
+    maxUses,
+    memoryMb,
+    cpus,
+    ports,
+    siteOnly ? 0 : b.allowCustomImage ? 1 : 0,
+    instanceDays,
+    points,
+    expiresAt,
+    now()
+  );
+  audit(
+    req.user,
+    'admin.invite_create',
+    code,
+    type === 'instance'
+      ? `${siteOnly ? '静态网页券' : '资源券'} ${memoryMb}MB/${cpus}核/${ports}端口${
+          instanceDays ? `/有效 ${instanceDays} 天` : ''
+        } ×${maxUses}`
+      : type === 'points'
+        ? `积分兑换码 ${points} 分 ×${maxUses}`
+        : `注册码 ×${maxUses}`
+  );
+  res.status(201).json({ invite: db.prepare('SELECT * FROM invites WHERE code = ?').get(code) });
+});
+
+/**
+ * 管理员给自己开一张券，一次一张、开完即用。
+ *
+ * 券是实例资源额度的唯一载体（内存/CPU/端口都写在券上），管理员也不例外；
+ * 但让他为了给自己开一台机器先绕去邀请码页手填一遍再复制回来，纯属仪式。
+ * 这个接口按他即将创建的那个模板的用量直接发一张，额度只做钳制不报错 ——
+ * 一个「给自己发券」的按钮不该弹校验失败。
+ */
+router.post('/invites/self', (req, res) => {
+  const b = req.body || {};
+  const clamp = (v, lo, hi, dflt) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
+  const memoryMb = Math.round(clamp(b.memoryMb, 64, 262144, config.voucherDefaultMemoryMb));
+  const cpus = clamp(b.cpus, 0.1, 64, config.voucherDefaultCpus);
+  const ports = Math.round(clamp(b.ports, 0, 32, config.voucherDefaultPorts));
+  const code = `self-${crypto.randomBytes(5).toString('hex')}`;
+
+  db.prepare(
+    `INSERT INTO invites (code, type, scope, created_by, issued_to, note, max_uses, uses,
+       memory_mb, cpus, ports, allow_custom_image, expires_at, created_at)
+     VALUES (?, 'instance', 'any', ?, ?, ?, 1, 0, ?, ?, ?, 1, NULL, ?)`
+  ).run(code, req.user.id, req.user.id, `${req.user.username} 给自己开的券`, memoryMb, cpus, ports, now());
+
+  audit(req.user, 'admin.invite_self', code, `${memoryMb}MB/${cpus}核/${ports}端口`);
+  res.status(201).json({ voucher: publicInvite(db.prepare('SELECT * FROM invites WHERE code = ?').get(code)) });
+});
+
+router.patch('/invites/:code', (req, res) => {
+  const inv = db.prepare('SELECT * FROM invites WHERE code = ?').get(req.params.code);
+  if (!inv) return res.status(404).json({ error: '邀请码不存在' });
+  const b = req.body || {};
+  const scope = b.scope === undefined ? undefined : b.scope === 'site' ? 'site' : 'any';
+  // 变成静态网页券的那一刻，端口和自定义镜像就没有意义了，一并抹掉。
+  const siteOnly = (scope ?? inv.scope) === 'site';
+  const map = {
+    scope,
+    max_uses: b.maxUses === undefined ? undefined : Math.max(inv.uses, Math.min(1000, Number(b.maxUses))),
+    memory_mb: b.memoryMb === undefined ? undefined : Math.round(Number(b.memoryMb)),
+    cpus: b.cpus === undefined ? undefined : Number(b.cpus),
+    ports: siteOnly ? 0 : b.ports === undefined ? undefined : Math.round(Number(b.ports)),
+    // 改天数只影响以后用它建的实例；已经建出来的实例把天数抄在自己身上了。
+    instance_days: siteOnly
+      ? null
+      : b.instanceDays === undefined
+        ? undefined
+        : Number(b.instanceDays) > 0
+          ? Math.round(Number(b.instanceDays))
+          : null,
+    allow_custom_image: siteOnly ? 0 : b.allowCustomImage === undefined ? undefined : b.allowCustomImage ? 1 : 0,
+    // 积分兑换码的面额；只对 type='points' 有意义，其它类型不碰
+    points:
+      inv.type !== 'points' || b.points === undefined
+        ? undefined
+        : Math.max(1, Math.min(1_000_000, Math.round(Number(b.points)))),
+    note: b.note === undefined ? undefined : String(b.note),
+  };
+  for (const [col, val] of Object.entries(map)) {
+    if (val === undefined || (typeof val === 'number' && !Number.isFinite(val))) continue;
+    db.prepare(`UPDATE invites SET ${col} = ? WHERE code = ?`).run(val, inv.code);
+  }
+  audit(req.user, 'admin.invite_update', inv.code, JSON.stringify(b));
+  res.json({ invite: db.prepare('SELECT * FROM invites WHERE code = ?').get(inv.code) });
+});
+
+router.delete('/invites/:code', (req, res) => {
+  db.prepare('DELETE FROM invites WHERE code = ?').run(req.params.code);
+  audit(req.user, 'admin.invite_delete', req.params.code, null);
+  res.json({ ok: true });
+});
+
+// ---------- all instances ----------
+router.get('/instances', async (req, res) => {
+  res.json({ instances: await svc.listForUser(req.user, { all: true }) });
+});
+
+// ---------- approval queue ----------
+router.get('/pending', async (req, res) => {
+  const rows = db.prepare("SELECT * FROM instances WHERE status = 'pending' ORDER BY created_at").all();
+  const pending = await Promise.all(rows.map((r) => svc.serialize(r, { withState: false })));
+  res.json({
+    pending,
+    // What the admin should point their tunnel at, and the address the panel
+    // would show if they leave the public field blank.
+    hint: {
+      bindAddress: config.bindAddress,
+      publicHost: config.publicHost || null,
+      portPool: `${config.portPoolStart}-${config.portPoolEnd}`,
+    },
+  });
+});
+
+router.post('/instances/:id/approve', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  await svc.approveInstance(row, req.user, {
+    addresses: req.body?.addresses || {},
+    note: req.body?.note,
+  });
+  res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
+});
+
+router.post('/instances/:id/reject', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  svc.rejectInstance(row, req.user, req.body?.reason);
+  res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
+});
+
+/** Repoint a live instance's public addresses — see setAddresses(). */
+router.patch('/instances/:id/addresses', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  svc.setAddresses(row, req.user, req.body?.addresses || {});
+  res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
+});
+
+/** 管理员修改实例的过期时间（或设为永久）。 */
+router.patch('/instances/:id/expiry', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  svc.setExpiry(row, req.user, req.body?.expiresAt);
+  res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
+});
+
+// ---------- audit ----------
+router.get('/audit', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  res.json({ entries: db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?').all(limit) });
+});
+
+// ---------- orphan containers ----------
+router.get('/orphans', async (req, res) => {
+  const managed = await dk.listManaged();
+  const known = new Set(db.prepare('SELECT container_id FROM instances').all().map((r) => r.container_id));
+  res.json({
+    orphans: managed
+      .filter((c) => !known.has(c.Id))
+      .map((c) => ({ id: c.Id, names: c.Names, image: c.Image, state: c.State, labels: c.Labels })),
+  });
+});
+
+router.delete('/orphans/:containerId', async (req, res) => {
+  await dk.removeContainer(req.params.containerId);
+  audit(req.user, 'admin.orphan_remove', req.params.containerId, null);
+  res.json({ ok: true });
+});
+
+// ---------- announcements ----------
+router.get('/announcements', (req, res) => {
+  res.json({ announcements: announcements.listAll() });
+});
+
+router.post('/announcements', (req, res) => {
+  const ann = announcements.create(req.body || {}, req.user);
+  audit(req.user, 'admin.announcement_create', ann.title, `priority=${ann.priority} format=${ann.format}`);
+  res.status(201).json({ announcement: announcements.row(ann) });
+});
+
+router.patch('/announcements/:id', (req, res) => {
+  const ann = announcements.update(Number(req.params.id), req.body || {});
+  audit(req.user, 'admin.announcement_update', ann.title, JSON.stringify(req.body));
+  res.json({ announcement: announcements.row(ann) });
+});
+
+router.delete('/announcements/:id', (req, res) => {
+  const ann = db.prepare('SELECT * FROM announcements WHERE id = ?').get(Number(req.params.id));
+  if (!ann) return res.status(404).json({ error: '公告不存在' });
+  announcements.del(ann.id);
+  audit(req.user, 'admin.announcement_delete', ann.title, null);
+  res.json({ ok: true });
+});

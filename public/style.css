@@ -1,0 +1,4207 @@
+/* ===========================================================================
+   localhosting — minimal UI, HeroUI design language
+   ---------------------------------------------------------------------------
+   No React, no Tailwind, no build step. What is borrowed from HeroUI is its
+   *design language*, ported to plain CSS custom properties:
+
+     · the zinc-based `default` scale + semantic content1..4 layers
+     · primary #006FEE, success #17c964, warning #f5a524, danger #f31260
+     · the 8 / 12 / 14px radius scale (small / medium / large)
+     · the three-tier shadow scale, incl. the inset hairline used in dark
+     · component metrics: flat filled inputs, solid tab pills, flat chips,
+       0.97 press scale, 2px focus ring at 2px offset, 0.5 disabled opacity
+
+   Colour is reserved for state; structure comes from the neutral scale.
+   =========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- default (neutral) scale — zinc ---- */
+  --default-50: #fafafa;
+  --default-100: #f4f4f5;
+  --default-200: #e4e4e7;
+  --default-300: #d4d4d8;
+  --default-400: #a1a1aa;
+  --default-500: #71717a;
+  --default-600: #52525b;
+  --default-700: #3f3f46;
+  --default-800: #27272a;
+  --default-900: #18181b;
+
+  /* ---- semantic layers ---- */
+  --background: #ffffff;
+  --foreground: #11181c;
+  --content1: #ffffff;
+  --content2: #f4f4f5;
+  --content3: #e4e4e7;
+  --divider: rgba(17, 17, 17, 0.12);
+  --overlay: rgba(0, 0, 0, 0.5);
+  --chrome: rgba(255, 255, 255, 0.72);
+  /* the auth backdrop dot — well under the divider, so the tight field reads as
+     texture rather than as content */
+  --dot: rgba(17, 17, 17, 0.11);
+
+  /* ---- brand + status ---- */
+  --primary: #006fee;
+  --primary-strong: #005bc4;
+  --primary-flat: rgba(0, 111, 238, 0.16);
+  --primary-foreground: #ffffff;
+  --focus: #006fee;
+
+  --success: #0e793c;
+  --success-flat: rgba(23, 201, 100, 0.18);
+  --warning: #936316;
+  --warning-flat: rgba(245, 165, 36, 0.2);
+  --danger: #c20e4d;
+  --danger-flat: rgba(243, 18, 96, 0.14);
+
+  /* ---- radius scale ---- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+
+  /* ---- shadow scale ---- */
+  --shadow-sm: 0px 0px 5px 0px rgb(0 0 0 / 0.02), 0px 2px 10px 0px rgb(0 0 0 / 0.06),
+    0px 0px 1px 0px rgb(0 0 0 / 0.3);
+  --shadow-md: 0px 0px 15px 0px rgb(0 0 0 / 0.03), 0px 2px 30px 0px rgb(0 0 0 / 0.08),
+    0px 0px 1px 0px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0px 0px 30px 0px rgb(0 0 0 / 0.04), 0px 30px 60px 0px rgb(0 0 0 / 0.12),
+    0px 0px 1px 0px rgb(0 0 0 / 0.3);
+
+  /* ---- motion: short, critically damped, never bouncy for plain UI ---- */
+  --fast: 110ms cubic-bezier(0.32, 0, 0.24, 1);
+  --base: 220ms cubic-bezier(0.32, 0, 0.24, 1);
+  /* The two above are symmetric — they ease in as well as out, which reads as
+     hesitation on the one frame the user is watching hardest. Anything that
+     *enters* (or grows into place) uses this instead: it moves immediately and
+     settles slowly, so the same duration feels faster. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* the default scale inverts in dark — 50 is darkest */
+    --default-50: #18181b;
+    --default-100: #27272a;
+    --default-200: #3f3f46;
+    --default-300: #52525b;
+    --default-400: #71717a;
+    --default-500: #a1a1aa;
+    --default-600: #d4d4d8;
+    --default-700: #e4e4e7;
+    --default-800: #f4f4f5;
+    --default-900: #fafafa;
+
+    --background: #000000;
+    --foreground: #ecedee;
+    --content1: #18181b;
+    --content2: #27272a;
+    --content3: #3f3f46;
+    --divider: rgba(255, 255, 255, 0.14);
+    --overlay: rgba(0, 0, 0, 0.6);
+    --chrome: rgba(0, 0, 0, 0.66);
+    --dot: rgba(255, 255, 255, 0.1);
+
+    --primary: #006fee;
+    --primary-strong: #338ef7;
+    --primary-flat: rgba(0, 111, 238, 0.24);
+
+    --success: #17c964;
+    --success-flat: rgba(23, 201, 100, 0.16);
+    --warning: #f5a524;
+    --warning-flat: rgba(245, 165, 36, 0.16);
+    --danger: #f31260;
+    --danger-flat: rgba(243, 18, 96, 0.18);
+
+    /* dark shadows carry an inset hairline so surfaces keep an edge on black */
+    --shadow-sm: 0px 0px 5px 0px rgb(0 0 0 / 0.05), 0px 2px 10px 0px rgb(0 0 0 / 0.2),
+      inset 0px 0px 1px 0px rgb(255 255 255 / 0.15);
+    --shadow-md: 0px 0px 15px 0px rgb(0 0 0 / 0.06), 0px 2px 30px 0px rgb(0 0 0 / 0.22),
+      inset 0px 0px 1px 0px rgb(255 255 255 / 0.15);
+    --shadow-lg: 0px 0px 30px 0px rgb(0 0 0 / 0.07), 0px 30px 60px 0px rgb(0 0 0 / 0.26),
+      inset 0px 0px 1px 0px rgb(255 255 255 / 0.15);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* Inter is HeroUI's face; fall back to the platform UI font when absent. */
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--primary-flat);
+}
+
+a {
+  color: var(--primary-strong);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* HeroUI focus ring: 2px in the focus colour, 2px offset. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.boot {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  color: var(--default-500);
+  font-size: 14px;
+}
+
+/* ---------- icons ----------
+   Lucide glyphs (see icons.js), inlined as SVG so they inherit colour and
+   scale with whatever type they sit next to. Everything that carries an icon
+   is laid out as a flex row further down, so the glyph never disturbs the
+   baseline of its label — the two rules below are for the odd inline case. */
+.ico {
+  flex: none;
+  width: 1.02em;
+  height: 1.02em;
+  vertical-align: -0.16em;
+  stroke-width: 1.75;
+}
+.ico.lg {
+  width: 1.25em;
+  height: 1.25em;
+}
+/* A trailing affordance (copy / open) that only asserts itself on hover. */
+.ico.trail {
+  margin-left: auto;
+  color: var(--default-400);
+  opacity: 0;
+  transition: opacity var(--fast);
+}
+.ico.ok {
+  color: var(--success);
+}
+/* Fades a glyph that annotates rather than labels — the link marker on a
+   symlink in the file list, for instance. */
+.ico.muted {
+  color: var(--default-400);
+}
+:hover > .ico.trail {
+  opacity: 1;
+}
+/* Coarse pointer as well as no-hover: a trailing affordance that only appears on
+   hover is invisible on anything you touch. */
+@media (hover: none), (pointer: coarse) {
+  .ico.trail {
+    opacity: 0.7;
+  }
+}
+
+/* Labels, hints and metadata that lead with a glyph.
+
+   Table cells are deliberately NOT in this list. A <th>/<td> has to stay
+   `display: table-cell` to take part in the table's column grid — turning one
+   into a flex container drops it out, and the CSS table fixup then wraps the
+   whole run of cells into a single anonymous cell, which stacks every column
+   of every row vertically. Cells get their glyph spacing from the rules in the
+   table section instead. */
+.kv span,
+.stat > span,
+.hint,
+.sub,
+.err,
+label.field > span,
+.cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hint,
+.sub,
+.err,
+.kv span {
+  /* the glyph sits on the first line; long text still wraps under itself */
+  flex-wrap: wrap;
+}
+.kv .ico,
+.stat > span .ico,
+.hint .ico,
+.sub .ico,
+.err .ico,
+td > .ico {
+  color: var(--default-400);
+}
+.err .ico {
+  color: var(--danger);
+}
+/* 一条马上就要变成坏消息的元数据 —— 快到期的实例，而不是已经出错的东西。 */
+.kv span.warn,
+.kv span.warn .ico {
+  color: var(--warning);
+}
+/* A page's own glyph, in a tinted tile to the left of its title. */
+.page-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--default-100);
+  color: var(--default-600);
+}
+.page-ico .ico {
+  width: 19px;
+  height: 19px;
+}
+/* The mark from the favicon, wrapped around the same rounded-square feel. */
+.brandmark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+.brandmark .ico {
+  width: 15px;
+  height: 15px;
+}
+
+/* ---------- loader ----------
+   A segment tracing the perimeter of the rounded square from the favicon.
+   The rect is 22×22 at r=7, so the path length is 4·(22−2·7) + 2π·7 ≈ 76 —
+   every dash pair below is in those user units and sums to that 76, which is
+   what lets the offset wrap seamlessly at the end of each cycle. */
+.loading {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: var(--default-500);
+  font-size: 13px;
+}
+.loader {
+  width: var(--loader-size, 30px);
+  height: var(--loader-size, 30px);
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  overflow: visible;
+}
+.loader .track {
+  stroke: var(--default-200);
+}
+.loader .trace {
+  stroke: var(--primary);
+  animation: loader-trace 1.5s linear infinite;
+}
+@keyframes loader-trace {
+  0% {
+    stroke-dasharray: 6 70;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 34 42;
+    stroke-dashoffset: -26;
+  }
+  100% {
+    stroke-dasharray: 6 70;
+    stroke-dashoffset: -76;
+  }
+}
+
+/* Inline variant: sits on a text baseline next to a label. */
+.loading.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  --loader-size: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader .trace {
+    stroke-dasharray: 34 42;
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+/* ---------- layout ----------
+   index.html asks for viewport-fit=cover, so on a notched phone the layout
+   viewport runs under the notch and the home indicator. Every surface that
+   touches an edge therefore takes the larger of its own padding and the inset:
+   in portrait the insets are 0 and nothing changes, in landscape they are ~47px
+   and the content steps out from under the camera housing. */
+.shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 max(24px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left));
+}
+
+header.top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--chrome);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 40px;
+}
+header.top .inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 10px max(24px, env(safe-area-inset-right)) 10px max(24px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* Without this the row's min-content width (brand + tabs + username + button,
+     all of them nowrap) becomes the document's minimum, and a phone browser
+     answers by widening the layout viewport and scaling the whole panel down —
+     the username length literally decided how zoomed-out the app was. The phone
+     block near the end of this file reflows it; wrapping is the part that has to
+     be allowed here, at any width, or the minimum comes back. */
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+/* The mark is the favicon itself, not an icon from the set: the blue rounded
+   square, outline only. Geometry is carried over exactly — the favicon draws
+   a 22×22 rect at rx=7 with a 3px stroke inside a 32×32 box, so the
+   proportions here are 22/32 for the square, 7/22 for the corner, and the
+   border is scaled to match at each size.
+
+   Whatever glyph the markup puts inside is hidden rather than styled: the
+   logo should not drift if that call site changes. The sign-in screen wants the
+   same square standing alone and much larger; it gets .dotmark instead, drawn
+   from dots — a border this wide would only look like a heavy ring. */
+.brandmark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  /* the mark is the outlined square itself, not a glyph on a tinted tile */
+  background: none;
+  border-radius: 0;
+}
+.brandmark > * {
+  display: none;
+}
+.brandmark::before {
+  content: "";
+  width: 68.75%;
+  height: 68.75%;
+  border: 2.5px solid var(--primary);
+  border-radius: 31.8%;
+}
+
+/* Solid tabs: a default-100 track with a content1 pill riding the active item. */
+nav.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--default-100);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+nav.tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--default-500);
+  font-size: 13.5px;
+  /* The track wraps once the row stops fitting, and without this a label would be
+      broken between characters instead of the row breaking between items: 概览
+     becomes a four-character column. Wrap the items, never the words. This is the
+     641–900px band's behaviour, tablets included, so it belongs on the base rule
+     rather than in the phone block. */
+  white-space: nowrap;
+  transition: color var(--fast), background var(--fast);
+}
+nav.tabs a:hover {
+  color: var(--foreground);
+  text-decoration: none;
+}
+nav.tabs a.active {
+  color: var(--foreground);
+  background: var(--content1);
+  box-shadow: var(--shadow-sm);
+  font-weight: 500;
+}
+.spacer {
+  flex: 1;
+}
+.whoami {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--default-500);
+  white-space: nowrap;
+}
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--default-100);
+  color: var(--default-600);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- cards & panels ---------- */
+.card {
+  background: var(--content1);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+}
+.grid {
+  display: grid;
+  gap: 14px;
+}
+/* `min(320px, 100%)` rather than a bare 320px: the track is allowed to be
+   narrower than its own minimum once the container is, which is the difference
+   between a card grid that collapses on a phone and one that pushes the whole
+   layout wider than the screen. No media query needed for it. */
+.grid.cols {
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+}
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 24px;
+  flex-wrap: wrap;
+}
+.page-title h1 {
+  /* Large text reads too loose by default — tighten tracking and leading. */
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.021em;
+  line-height: 1.2;
+  margin: 0;
+}
+.sub {
+  color: var(--default-500);
+  font-size: 13px;
+}
+
+/* ---------- instance card ---------- */
+.inst {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: box-shadow var(--base);
+}
+.inst:hover {
+  box-shadow: var(--shadow-md);
+}
+.inst .head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.inst .name {
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.inst .img {
+  color: var(--default-500);
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  word-break: break-all;
+  margin-top: 2px;
+}
+
+/* Chip, flat variant: fully round, tinted background, no border. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--default-100);
+  color: var(--default-600);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.badge.running {
+  color: var(--success);
+  background: var(--success-flat);
+}
+.badge.exited,
+.badge.stopped,
+.badge.created,
+.badge.paused {
+  color: var(--warning);
+  background: var(--warning-flat);
+}
+.badge.pending,
+.badge.creating,
+.badge.restarting {
+  color: var(--primary-strong);
+  background: var(--primary-flat);
+}
+.badge.error,
+.badge.rejected,
+.badge.missing,
+.badge.dead {
+  color: var(--danger);
+  background: var(--danger-flat);
+}
+.badge.sleeping {
+  color: var(--default-600);
+  background: var(--default-200);
+}
+.badge.waking {
+  color: var(--primary-strong);
+  background: var(--primary-flat);
+}
+/* 封存是终点，不是故障：灰得比休眠更实，但不用报错的红。 */
+.badge.archived {
+  color: var(--default-50);
+  background: var(--default-500);
+}
+
+.badge.info {
+  color: var(--primary-strong);
+  background: var(--primary-flat);
+}
+.badge.warning {
+  color: var(--warning);
+  background: var(--warning-flat);
+}
+.badge.critical {
+  color: var(--danger);
+  background: var(--danger-flat);
+}
+
+/* ---- drag & drop deploy ---- */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 168px;
+  padding: 22px;
+  text-align: center;
+  border: 2px dashed var(--default-300);
+  border-radius: var(--radius-lg);
+  background: var(--content2);
+  color: var(--default-500);
+  font-size: 13.5px;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  cursor: pointer;
+}
+.dropzone:hover {
+  border-color: var(--default-400);
+}
+.dropzone.over {
+  border-color: var(--primary);
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+.dropzone.loaded {
+  border-style: solid;
+  border-color: var(--success);
+  background: var(--success-flat);
+  color: var(--foreground);
+}
+.dropzone .big {
+  font-size: 30px;
+  line-height: 1;
+}
+.dropzone .head {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.dropzone.small {
+  min-height: 104px;
+  padding: 14px;
+}
+.filelist {
+  max-height: 190px;
+  overflow: auto;
+  font-size: 12.5px;
+}
+.filelist div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.kv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12.5px;
+  color: var(--default-500);
+}
+.addr {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  background: var(--default-100);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--fast), transform var(--fast);
+  /* A hostname is one long unbreakable word, and this pill is the widest thing
+     on the page on a phone. It may wrap inside itself and it may not push its
+     container wider than the screen. */
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.addr:hover {
+  background: var(--default-200);
+}
+.addr:active {
+  transform: scale(0.97);
+}
+.addr small {
+  color: var(--default-500);
+}
+
+/* ---------- buttons ---------- */
+/* Default is the flat variant; .primary is solid; .danger is flat danger. */
+button,
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--default-100);
+  color: var(--foreground);
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--fast), opacity var(--fast), transform var(--fast);
+}
+button:hover:not(:disabled),
+.btn:hover {
+  background: var(--default-200);
+  text-decoration: none;
+}
+/* Feedback lives on the press, not on release. */
+button:active:not(:disabled),
+.btn:active {
+  transform: scale(0.97);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button.primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--primary);
+  filter: brightness(1.1);
+}
+button.danger {
+  color: var(--danger);
+  background: var(--danger-flat);
+}
+button.danger:hover:not(:disabled) {
+  background: var(--danger-flat);
+  filter: brightness(0.95);
+}
+button.ghost {
+  background: transparent;
+  color: var(--default-500);
+}
+button.ghost:hover:not(:disabled) {
+  background: var(--default-100);
+  color: var(--foreground);
+}
+button.small,
+.btn.small {
+  padding: 5px 12px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ---------- forms ---------- */
+/* Flat inputs: a filled default-100 field, no border, ring only on focus. */
+label.field {
+  display: block;
+  margin-bottom: 16px;
+}
+/* inline-flex, not block, so a leading icon shares the label's baseline
+   without needing a wrapper element around the text. */
+label.field > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--default-500);
+  margin-bottom: 6px;
+}
+label.field > span .ico {
+  color: var(--default-400);
+}
+input,
+select,
+textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  color: var(--foreground);
+  background: var(--default-100);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  outline: none;
+  transition: background var(--fast), box-shadow var(--fast);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--default-400);
+}
+input:hover:not(:focus):not(:disabled),
+select:hover:not(:focus),
+textarea:hover:not(:focus) {
+  background: var(--default-200);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  background: var(--default-100);
+  /* Ring offset is drawn in content1 — fields always sit on a card, not on the
+     page background, so offsetting in --background would punch a dark halo. */
+  box-shadow: 0 0 0 2px var(--content1), 0 0 0 4px var(--focus);
+}
+input:disabled {
+  color: var(--default-500);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--default-500) 50%),
+    linear-gradient(135deg, var(--default-500) 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 1px), calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--primary);
+  box-shadow: none;
+}
+textarea {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.hint {
+  font-size: 12px;
+  color: var(--default-500);
+  margin-top: 6px;
+  line-height: 1.5;
+  /* Hints quote paths and codes, which have no break opportunities of their own;
+     without this the delete-confirmation dialog clips the very path it is asking
+     about. */
+  overflow-wrap: anywhere;
+}
+.hint code {
+  word-break: break-all;
+}
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+@media (max-width: 640px) {
+  .two {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- auth ----------
+   The sign-in screen is the only page with no chrome around it, so it gets a
+   dot field to keep it from reading as an empty white sheet. The dots are a
+   1px radial-gradient tiled on an 8px grid — tight enough to read as a woven
+   surface rather than scattered specks, which is also what lets the dot-matrix
+   mark above the card look like the field gathering itself up. Alpha drops as
+   the grid tightens (0.16 → 0.11): three times as many dots per area would
+   otherwise turn texture into pattern. The radial mask fades it out toward the
+   viewport edges so the card sits in the calm middle of a halo rather than on
+   wallpaper. Fixed, so it never becomes a grid item of .auth-wrap. */
+.auth-wrap {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  /* Two auto rows now (mark, then card): without this they would each stretch
+     to half the viewport and the mark would float in the top half. */
+  align-content: center;
+  padding: 24px;
+}
+.auth-wrap::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+  background-size: 8px 8px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+}
+/* The sign-in mark, standing alone above the card: the same rounded square the
+   header wears, but sampled onto a dot grid (see dotMark() for the geometry).
+   Sized so its own step lands near 3px — fine enough that the ring reads as one
+   stroke from a normal viewing distance, coarse enough that you can still count
+   the dots, which is the whole point of it echoing the field behind. */
+.dotmark {
+  flex: none;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 14px;
+  /* only reached if the gradient reference is ever dropped; the dots take their
+     colour from #dotmark-ink below */
+  fill: var(--primary);
+  /* No entrance on the mark as a whole — the dots bring themselves in one at a
+     time, see .dotmark.assemble below. */
+}
+/* Ink deepens down the top-left → bottom-right diagonal — the direction the wave
+   below travels too, so the pair reads as one light crossing the matrix instead
+   of two effects sharing a logo. */
+.dotmark stop:first-child {
+  stop-color: var(--primary);
+}
+.dotmark stop:last-child {
+  stop-color: var(--primary-strong);
+}
+/* Each dot runs the same dip on its own delay (dotMark() hands it the phase),
+   which is what turns 148 independent fades into a band of light drifting
+   across. Slow and shallow on purpose: this sits behind a password field, so it
+   has to be something you notice on the second look, not the first. */
+.dotmark circle {
+  animation: mark-wave 3600ms ease-in-out infinite;
+}
+/* Arriving at the sign-in screen, the matrix switches itself on a dot at a time
+   in a random order until the mark is whole — the field behind it condensing
+   into the logo, rather than the logo being placed on top of the field.
+   dotMark() hands each circle its turn as the second animation-delay.
+
+   Listed *after* the wave so it wins the opacity while it runs, and filled
+   `backwards` rather than `both` so it stops contributing the instant it is
+   done and hands the dot straight back to the wave — with `both` the forwards
+   fill would pin every dot at full opacity and the wave would never be seen
+   again. */
+.dotmark.assemble circle {
+  /* SVG transforms are in user space by default, so a bare scale() would drag
+     each dot toward the viewBox origin instead of growing where it sits. */
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mark-wave 3600ms ease-in-out infinite, mark-dot-in 300ms var(--ease-out) backwards;
+}
+@keyframes mark-dot-in {
+  from {
+    opacity: 0;
+    /* not scale(0): a dot that grows out of nothing reads as a glitch, and at
+       this size the scale is only there to keep the switch-on from being a
+       flat fade */
+    transform: scale(0.4);
+  }
+}
+@keyframes mark-wave {
+  50% {
+    /* 0.42 was the first try and at 80px it read as half the logo not having
+       loaded yet; the band has to be shallow enough to stay a highlight */
+    opacity: 0.58;
+  }
+}
+/* On black, dots this small lose the weight a solid stroke would have kept, so
+   the mark leads with the lighter blue the dark scheme already uses for
+   primary-on-dark text and trails into the base one. */
+@media (prefers-color-scheme: dark) {
+  .dotmark {
+    fill: var(--primary-strong);
+  }
+  .dotmark stop:first-child {
+    stop-color: var(--primary-strong);
+  }
+  .dotmark stop:last-child {
+    stop-color: var(--primary);
+  }
+}
+.auth {
+  position: relative;
+  width: min(380px, 100%);
+  padding: 32px;
+  /* one step up the shadow scale from a plain card: the dots behind it need
+     more separation than a flat background does */
+  box-shadow: var(--shadow-lg);
+}
+.auth h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+}
+/* Same solid-tabs treatment as the header nav. */
+.auth .switch {
+  display: flex;
+  gap: 2px;
+  background: var(--default-100);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  margin: 24px 0 20px;
+}
+.auth .switch button {
+  flex: 1;
+  background: transparent;
+  color: var(--default-500);
+  padding: 5px;
+  font-size: 13px;
+  font-weight: 400;
+  border-radius: var(--radius-sm);
+}
+.auth .switch button:hover:not(.on) {
+  background: transparent;
+  color: var(--foreground);
+}
+.auth .switch button.on {
+  background: var(--content1);
+  box-shadow: var(--shadow-sm);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/* ---------- stopped account ----------
+   Reuses the sign-in shell (.auth-wrap dot field, .card.auth column) and only
+   swaps the mark above the card. Deliberately NOT .brandmark: that one hides
+   whatever glyph the markup hands it and draws the favicon square instead, and
+   here the glyph is the entire message. Danger-tinted so the state lands before
+   a word is read. */
+.statemark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--danger-flat);
+  color: var(--danger);
+}
+.statemark .ico {
+  width: 26px;
+  height: 26px;
+}
+/* The account being talked about — monospaced, so a name with lookalike
+   characters (l/1, O/0) can be read back to an admin without ambiguity. */
+.auth.stopped .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--default-100);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 13px;
+}
+.auth.stopped .who .ico {
+  color: var(--default-400);
+}
+.auth.stopped .note {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--default-100);
+  color: var(--default-600);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.auth.stopped button {
+  width: 100%;
+  margin-top: 20px;
+}
+
+/* ---------- Turnstile / CAPTCHA ----------
+   Cloudflare Turnstile 风格的 "我不是机器人" 一键验证。 */
+.turnstile-wrap {
+  margin-bottom: 16px;
+}
+.turnstile {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  cursor: pointer;
+  transition: border-color var(--fast), background var(--fast), transform var(--fast);
+  user-select: none;
+}
+.turnstile .ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--default-400);
+  pointer-events: none;
+  transform: scale(0);
+  animation: turnstile-ripple 0.55s ease-out forwards;
+}
+.turnstile.verified .ripple {
+  background: var(--success);
+}
+@keyframes turnstile-ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+@keyframes turnstile-pop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes turnstile-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-4px);
+  }
+  30% {
+    transform: translateX(4px);
+  }
+  45% {
+    transform: translateX(-3px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+  90% {
+    transform: translateX(1px);
+  }
+}
+@keyframes checkmark-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.turnstile:hover {
+  border-color: var(--default-400);
+  background: var(--default-50);
+  transform: translateY(-0.5px);
+}
+.turnstile:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.turnstile:active:not(.verified) {
+  transform: scale(0.98);
+}
+.turnstile.loading {
+  cursor: wait;
+  opacity: 0.7;
+}
+.turnstile.shake {
+  animation: turnstile-shake 340ms ease-out;
+}
+.turnstile.verified {
+  animation: turnstile-pop 440ms var(--ease-out);
+  border-color: var(--success);
+  background: var(--success-flat);
+  cursor: default;
+}
+.turnstile-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: 2px solid var(--default-400);
+  display: grid;
+  place-items: center;
+  transition: border-color var(--fast), background var(--fast);
+}
+.turnstile:hover .turnstile-icon {
+  border-color: var(--default-600);
+}
+.turnstile.verified .turnstile-icon {
+  border-color: var(--success);
+  background: var(--success);
+}
+.turnstile-check {
+  width: 16px;
+  height: 16px;
+}
+.turnstile-check polyline {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+}
+.turnstile.verified .turnstile-check polyline {
+  animation: checkmark-draw 320ms var(--ease-out) 80ms forwards;
+}
+.turnstile-loader {
+  width: 18px;
+  height: 18px;
+}
+.turnstile-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+  transition: color var(--fast);
+}
+.turnstile.verified .turnstile-label {
+  color: var(--success);
+}
+.turnstile.error .turnstile-label {
+  color: var(--danger);
+}
+.turnstile-status {
+  font-size: 12px;
+  color: var(--success);
+  text-align: center;
+  margin-top: 6px;
+  min-height: 18px;
+  transition: color var(--fast);
+}
+.turnstile.error .turnstile-status {
+  color: var(--danger);
+}
+
+/* ---------- template gallery ---------- */
+.tpl {
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  transition: box-shadow var(--base), transform var(--fast);
+}
+.tpl:hover {
+  box-shadow: var(--shadow-md);
+}
+.tpl:active {
+  transform: scale(0.99);
+}
+/* Selection reads as a 2px primary ring, the HeroUI selected state. */
+.tpl.on {
+  box-shadow: var(--shadow-sm), 0 0 0 2px var(--primary);
+}
+.tpl .icon {
+  font-size: 20px;
+  line-height: 1.3;
+  filter: saturate(0.85);
+}
+.tpl .t-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+.tpl .t-desc {
+  font-size: 12.5px;
+  color: var(--default-500);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--default-500);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin: 32px 0 12px;
+}
+/* A section heading sitting at the top of a card has no preceding content to
+   separate itself from, so it drops the top margin. */
+.cat.flush {
+  margin-top: 0;
+}
+.cat .ico {
+  color: var(--default-400);
+}
+
+/* ---------- tables ---------- */
+/* HeroUI table: a default-100 header strip, no row rules, hover tint instead. */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+}
+th,
+td {
+  text-align: left;
+  padding: 9px 12px;
+  vertical-align: middle;
+}
+/* Cells borrow the text helpers (.sub, .mono, .row, .err …) all over the admin
+   tables, and several of those set `display: flex`, which would knock the cell
+   out of the column grid. `td[class]` scores 0,1,1 and so outranks any bare
+   class selector — the cell keeps its display no matter what it borrows. */
+th[class],
+td[class] {
+  display: table-cell;
+}
+/* A leading glyph inside a cell: inline, since the cell is no longer a flex
+   row. `.ico` already carries the baseline nudge. */
+th > .ico,
+td > .ico {
+  margin-right: 6px;
+  color: var(--default-400);
+}
+/* The action column: buttons are inline-flex, so they sit side by side on
+   their own and only need the gap that .row used to provide. */
+td.row > * + * {
+  margin-left: 8px;
+}
+/* Free text in a data table — an audit detail — wraps and breaks instead of
+   turning its column into one long line. Was an inline style on that one cell;
+   a class, because the phone rules further down need something to name. */
+td.wrap {
+  max-width: 320px;
+  word-break: break-all;
+}
+th {
+  background: var(--default-100);
+  color: var(--default-500);
+  font-weight: 600;
+  font-size: 12px;
+}
+th:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+th:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+tr:not(:has(th)):hover td {
+  background: var(--default-100);
+}
+tr:not(:has(th)):hover td:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+tr:not(:has(th)):hover td:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 -8px;
+  padding: 0 8px;
+}
+code,
+.mono {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+}
+code {
+  color: var(--default-600);
+}
+
+/* ---------- logs ---------- */
+pre.logs {
+  /* default-100, not -50: in dark, default-50 is identical to content1, so a
+     log block sitting on a card would have no edge at all. */
+  background: var(--default-100);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  max-height: 460px;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  color: var(--foreground);
+}
+
+/* ---------- live console ----------
+   终端的 16 色调色板。不能直接用标准 ANSI 那一套原色：那套是给纯黑底设计的，
+   放在浅色主题的 --default-100 上，黄和青基本看不见，「黑」在深色主题里又直接
+   消失。所以两套值都是按各自的底色重新定的，目标是正文对比度不低于 4.5:1，
+   同时保持「红是红、绿是绿」的可辨识度。--term-bg / --term-fg 给反显用。 */
+pre.term {
+  --term-bg: var(--default-100);
+  --term-fg: var(--foreground);
+  --t0: #3f3f46;
+  --t1: #b42318;
+  --t2: #146c2e;
+  --t3: #8a6100;
+  --t4: #0b57b8;
+  --t5: #8b2fb3;
+  --t6: #0e6f7d;
+  --t7: #71717a;
+  --t8: #52525b;
+  --t9: #cf2f26;
+  --t10: #197f37;
+  --t11: #96690a;
+  --t12: #1666cc;
+  --t13: #a03ecb;
+  --t14: #0f7583;
+  --t15: #27272a;
+  background: var(--default-100);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  padding: 14px 16px;
+  /* dvh, not vh: on a phone `vh` is measured against the *large* viewport, so a
+     terminal sized in vh keeps the height it had before the URL bar and the
+     keyboard appeared and pushes its own input off the screen. On desktop the
+     two units are identical, so this is a mobile-only change.
+     dvh 也不会因为软键盘而变短 —— 键盘是浮在上面的，不改视口。所以再减去 --kb
+     （wireConsole 用 visualViewport 量出来的键盘高度），终端主动让出那一段，
+     吸底的输入行才不会被埋在键盘下面。 */
+  height: calc(58dvh - var(--kb, 0px));
+  min-height: 280px;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  color: var(--foreground);
+}
+/* 深色主题下重新配一遍：黑要浅到看得见，亮色系要压到不刺眼。 */
+@media (prefers-color-scheme: dark) {
+  pre.term {
+    --t0: #6b6b73;
+    --t1: #ff7b72;
+    --t2: #58d364;
+    --t3: #e3b341;
+    --t4: #79c0ff;
+    --t5: #d2a8ff;
+    --t6: #56d4dd;
+    --t7: #c9c9d1;
+    --t8: #8b8b93;
+    --t9: #ffa198;
+    --t10: #7ee787;
+    --t11: #f2cc60;
+    --t12: #a5d6ff;
+    --t13: #e2c5ff;
+    --t14: #7ce8f0;
+    --t15: #f4f4f5;
+  }
+}
+/* 一行一个节点，只有改过的行重画。空行也得占一行高，否则光标定位画出来的
+   空白屏会整个塌掉。 */
+pre.term .tl {
+  display: block;
+  min-height: 1.55em;
+}
+/* 工具栏。窄屏上按钮会换行，所以状态点和说明各自能独立收缩。 */
+.term-bar {
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.term-tools {
+  gap: 6px;
+}
+.term-tools button.icon-only {
+  padding: 6px 9px;
+}
+.term-tools button.on {
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+/* 连不上的时候状态点本身就是「再试一次」的按钮：一个只在需要时出现的入口，
+   比常驻工具栏里多一个按钮省地方。 */
+.dot.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.term-body {
+  position: relative;
+}
+/* 翻上去看历史时，新输出不再把人拽回底部 —— 于是需要一个回去的入口。 */
+.term-jump {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  border-radius: 999px;
+  background: var(--content1);
+  color: var(--foreground);
+  box-shadow: var(--shadow-md);
+}
+.term-jump[hidden] {
+  display: none;
+}
+/* 按键条和命令行是一体的：手机上要一起吸底，中间不能被键盘劈开。 */
+.term-keys {
+  display: none;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 8px 10px 0 14px;
+  background: var(--default-100);
+  border-top: 1px solid var(--divider);
+}
+.term-keys::-webkit-scrollbar {
+  display: none;
+}
+.term-keys:empty {
+  display: none;
+}
+.term-keys button {
+  flex: none;
+  padding: 6px 12px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+  background: var(--content1);
+  color: var(--default-600);
+}
+.term-keys button:active {
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+.term-keys.off {
+  opacity: 0.5;
+}
+/* 直连模式下键盘就是唯一的输入方式，按键条在桌面上也要出来。 */
+.term-card.direct .term-keys {
+  display: flex;
+}
+.term-input {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: var(--default-100);
+  border-top: 1px solid var(--divider);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.term-keys:not(:empty) + .term-input {
+  border-top: 0;
+}
+.term-input .caret {
+  color: var(--primary);
+  font-weight: 600;
+  display: inline-flex;
+}
+/* 密码提示：字掩掉、提示符换成锁、光标色换成警示色。这里不切 type=password，
+   那会招来密码管理器，它会提示保存并把口令写进浏览器的凭据库 —— 比明文更难清。 */
+.term-input.secret input {
+  -webkit-text-security: disc;
+  letter-spacing: 0.14em;
+}
+.term-input.secret .caret {
+  color: var(--warning);
+}
+.term-note {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--default-500);
+}
+.term-note[hidden] {
+  display: none;
+}
+.term-input.secret .term-note {
+  color: var(--warning);
+}
+/* 最大化：终端本来就是要占满屏幕才好用的东西，尤其在手机上。 */
+.term-card.full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+.term-card.full .term-body {
+  flex: 1;
+  min-height: 0;
+}
+.term-card.full pre.term {
+  height: 100%;
+  min-height: 0;
+}
+.term-card.full .hint {
+  display: none;
+}
+body.term-full-open {
+  overflow: hidden;
+}
+/* 容器没在跑时的空状态：说清楚为什么，并给出唯一有用的那个动作。 */
+.term-empty {
+  text-align: center;
+  padding: 48px 24px;
+}
+.term-empty .ico {
+  color: var(--default-400);
+  width: 32px;
+  height: 32px;
+}
+.term-empty h3 {
+  margin: 12px 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.term-empty p {
+  margin: 0 auto 18px;
+  max-width: 420px;
+}
+/* 粘贴确认：预览是全文可滚动的，不截断 —— 截断正好被「用空行把坏东西推到
+   可见区外」这种手法吃死。 */
+dialog.paste-dlg {
+  width: min(620px, 94vw);
+}
+.paste-preview {
+  margin-top: 12px;
+  max-height: min(40vh, 320px);
+  font-size: 12px;
+}
+.term-input input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+.term-input input:focus {
+  box-shadow: none;
+}
+.term-input input:disabled {
+  opacity: 0.6;
+}
+/* Status pill next to the console toolbar. */
+.dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--default-600);
+}
+.dot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--default-400);
+}
+.dot.ok::before {
+  background: var(--success);
+}
+.dot.err::before {
+  background: var(--danger);
+}
+.dot.busy::before {
+  background: var(--warning);
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ---------- file manager ----------
+   The instance's 文件 tab. Sits on the same table primitives as the admin lists;
+   what it adds is a toolbar that survives narrow screens, a breadcrumb that
+   reads as a path rather than as navigation chrome, and a name column that
+   grows while the numbers stay put. */
+.fm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.fm-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--default-100);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+}
+.fm-crumbs > span {
+  color: var(--default-400);
+}
+.fm-crumbs button {
+  background: transparent;
+  color: var(--default-600);
+  padding: 2px 4px;
+  font-size: 12.5px;
+  font-weight: 400;
+  border-radius: 5px;
+}
+.fm-crumbs button:hover {
+  background: var(--default-200);
+  color: var(--foreground);
+}
+/* The last segment is where you are, not somewhere to go. */
+.fm-crumbs button:last-child {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.fm-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+}
+/* Flat chip, HeroUI's default-100 fill — same family as the address pills. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--default-100);
+  color: var(--default-600);
+  font-size: 12.5px;
+  font-weight: 400;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}
+.chip:hover {
+  background: var(--default-200);
+  color: var(--foreground);
+}
+.chip small {
+  color: var(--default-400);
+  font-family: inherit;
+}
+.fm-table {
+  table-layout: auto;
+}
+/* Numbers right-aligned and tabular so sizes line up down the column. */
+.fm-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fm-table td.sub {
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--default-500);
+}
+.fm-table td:first-child {
+  width: 100%; /* the name column takes whatever the others do not */
+}
+/* A row's name is the primary action, so it looks like text and behaves like a
+   link rather than sitting in a button-shaped box. */
+.fm-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  background: transparent;
+  color: var(--foreground);
+  padding: 2px 0;
+  font-size: 13.5px;
+  font-weight: 400;
+  border-radius: 4px;
+}
+.fm-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fm-name:hover {
+  background: transparent;
+  color: var(--primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.fm-name:active {
+  transform: none;
+}
+.fm-name .ico {
+  color: var(--default-400);
+}
+.fm-name.dir .ico {
+  color: var(--primary);
+}
+.fm-acts {
+  white-space: nowrap;
+  text-align: right;
+}
+.fm-acts button {
+  padding: 4px 6px;
+  margin-left: 2px;
+}
+/* Actions stay out of the way until the row is under the cursor — a file list
+   with four buttons on every line reads as a wall of buttons. `pointer: fine` is
+   part of the guard on purpose: a touch device that merely *reports* hover (some
+   Android browsers, a phone with a mouse attached) would otherwise hide the only
+   controls the row has. */
+@media (hover: hover) and (pointer: fine) {
+  .fm-acts button {
+    opacity: 0;
+    transition: opacity var(--fast);
+  }
+  tr:hover .fm-acts button,
+  .fm-acts button:focus-visible {
+    opacity: 1;
+  }
+}
+.fm .dropzone.small {
+  min-height: 78px;
+  margin-top: 14px;
+}
+.dropzone.busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+/* ---------- the text editor ----------
+   A dialog that gives the text the whole viewport it can get: a flex column
+   where only the editing area grows, so on a short screen 保存 and the status
+   bar stay pinned instead of scrolling out of the dialog's own overflow.
+
+   Three layers share one set of metrics — the textarea the caret lives in, the
+   `<pre>` painted underneath it, and the gutter beside it. Everything that
+   affects where a glyph lands (font, size, line-height, tab-size, padding, and
+   the wrapping mode) is declared once for all three, because a single pixel of
+   drift between them shows up as line numbers pointing at the wrong rows. */
+dialog.fm-edit {
+  /* The preference is a separate variable from the size actually used, so the
+     touch clamp further down can raise it without the inline style JS writes
+     for 字号 winning by virtue of being inline. */
+  --ed-fs: var(--ed-fs-pref, 13px);
+  --ed-lh: 1.55;
+  --ed-tab: 4;
+  --ed-pad: 10px;
+  --ed-w: 0px;
+  width: min(1080px, 96vw);
+  padding: 14px;
+}
+dialog.fm-edit[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(calc(100dvh - 24px), 940px);
+  overflow: hidden;
+}
+dialog.fm-edit.max {
+  width: calc(100vw - 12px);
+  max-width: none;
+}
+dialog.fm-edit.max[open] {
+  max-height: calc(100dvh - 12px);
+}
+dialog.fm-edit > * {
+  flex: none;
+}
+
+/* header: what file this is, and the two things you do to it */
+.ed-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-grow {
+  flex: 1;
+  min-width: 0;
+}
+.ed-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.ed-file .ico {
+  flex: none;
+  color: var(--default-500);
+}
+/* Two pieces, because a path that does not fit must lose its directory and
+   never its file name — an ellipsis over `…/nginx.conf` is useless. */
+.ed-path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+}
+.ed-dir {
+  min-width: 0;
+  color: var(--default-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-base {
+  flex: none;
+  font-weight: 600;
+}
+.ed-dirty {
+  flex: none;
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1;
+}
+.ed-head button.ed-icon {
+  padding: 7px;
+}
+
+/* toolbar: the verbs, all of which also have a shortcut */
+.ed-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ed-tools button {
+  padding: 6px 9px;
+}
+.ed-tools button.ed-icon {
+  padding: 6px;
+}
+.ed-tools button[aria-pressed="true"] {
+  background: var(--primary-flat);
+  color: var(--primary);
+}
+.ed-ind-label {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ed-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--divider);
+}
+
+/* find + replace: a grid so the second column takes the width of the wider
+   control group and both fields end on the same edge */
+.ed-find {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--content2);
+}
+.ed-find[hidden] {
+  display: none;
+}
+.ed-find-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ed-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--content1);
+}
+.ed-input .ico {
+  flex: none;
+  color: var(--default-400);
+}
+.ed-input input {
+  background: transparent;
+  padding: 7px 10px 7px 0;
+  border-radius: 0;
+}
+dialog.fm-edit .ed-input input:hover,
+dialog.fm-edit .ed-input input:focus {
+  background: transparent;
+  box-shadow: none;
+}
+.ed-input:focus-within {
+  box-shadow: 0 0 0 2px var(--content2), 0 0 0 4px var(--focus);
+}
+.ed-input:has(input.bad) {
+  box-shadow: 0 0 0 2px var(--content2), 0 0 0 4px var(--danger);
+}
+/* The three flags are labels, not glyphs — "Aa" says what it does in a way no
+   icon of a letter ever manages. */
+.ed-flag {
+  flex: none;
+  min-width: 30px;
+  padding: 5px 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--default-500);
+}
+.ed-flag:hover {
+  background: var(--content3);
+}
+.ed-flag[aria-pressed="true"] {
+  background: var(--primary-flat);
+  color: var(--primary);
+}
+.ed-count {
+  flex: none;
+  min-width: 62px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ed-find button.ed-icon {
+  padding: 6px;
+}
+.ed-note {
+  margin: 0;
+}
+
+/* the editing surface */
+dialog.fm-edit > .ed-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 140px;
+  height: min(60dvh, 640px);
+  border-radius: var(--radius-md);
+  background: var(--default-100);
+  overflow: hidden;
+}
+dialog.fm-edit.max .ed-main {
+  height: auto;
+}
+.ed-gutter {
+  flex: none;
+  position: relative;
+  /* An explicit width, handed over by the script once it knows how many digits
+     the last line number needs. It cannot be intrinsic: in wrapped mode each
+     row carries a full-width copy of its line, and left to size itself the
+     gutter would grow to hold that copy and squeeze the text out entirely. */
+  width: var(--ed-gw, 46px);
+  overflow: hidden;
+  padding-right: 8px;
+  border-right: 1px solid var(--divider);
+  background: var(--default-100);
+  user-select: none;
+}
+dialog.fm-edit.nogutter .ed-gutter {
+  display: none;
+}
+.ed-nums {
+  padding: var(--ed-pad) 0;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: var(--ed-fs);
+  line-height: var(--ed-lh);
+  color: var(--default-400);
+  font-variant-numeric: tabular-nums;
+  will-change: transform;
+}
+.ed-nums .ln {
+  position: relative;
+  padding-left: 12px;
+  text-align: right;
+}
+.ed-nums .ln.on {
+  color: var(--foreground);
+}
+/* wrapped mode: `i` is the number, pinned to the row's first line box, and `s`
+   is an invisible copy of the line that gives the row its real height. */
+.ed-nums .ln > i {
+  position: absolute;
+  inset: 0 0 auto 12px;
+  font-style: normal;
+}
+.ed-nums .ln > s {
+  display: block;
+  width: var(--ed-w);
+  text-align: left;
+  text-decoration: none;
+  visibility: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: var(--ed-tab);
+}
+.ed-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.ed-cur {
+  position: absolute;
+  /* The offset the script hands over already carries the top padding, since it
+     is measured off a gutter row — no second helping of it here. */
+  inset: 0 0 auto 0;
+  background: var(--divider);
+  opacity: 0.35;
+  pointer-events: none;
+  will-change: transform;
+}
+/* Qualified by the dialog so it outranks the blanket `textarea.mono` sizing the
+   touch block sets — the paint layer and the caret layer must agree on metrics
+   before they agree with anything else. */
+dialog.fm-edit .ed-hl,
+dialog.fm-edit .ed-ta {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--ed-pad) 12px var(--ed-pad) 10px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: var(--ed-fs);
+  line-height: var(--ed-lh);
+  tab-size: var(--ed-tab);
+  white-space: pre;
+  border: none;
+  border-radius: 0;
+}
+.ed-hl {
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--foreground);
+}
+/* One transformed box holds both the text and the match markers, so a marker
+   measured against the text stays glued to it through any amount of scrolling. */
+.ed-shift {
+  display: block;
+  position: relative;
+  width: max-content;
+  white-space: inherit;
+  will-change: transform;
+}
+.ed-hl code {
+  display: block;
+  font: inherit;
+  white-space: inherit;
+}
+.ed-hits {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+/* The layer around it is often invisible (plain text, or mid-composition); the
+   match marker is the one thing in it that must still be seen. */
+.ed-hit {
+  position: absolute;
+  visibility: visible;
+  border-radius: 2px;
+  background: var(--warning-flat);
+  box-shadow: inset 0 0 0 1px var(--warning);
+}
+.ed-ta {
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: transparent;
+  /* The glyphs the user reads come from the layer underneath; this one only
+     contributes the caret and the selection. */
+  color: transparent;
+  caret-color: var(--foreground);
+}
+/* The focus ring belongs to the frame around all three layers, not to the
+   transparent one in the middle — and it has to outrank `textarea:hover`. */
+dialog.fm-edit .ed-ta:hover,
+dialog.fm-edit .ed-ta:focus {
+  background: transparent;
+  box-shadow: none;
+}
+dialog.fm-edit > .ed-main:focus-within {
+  box-shadow: 0 0 0 2px var(--content1), 0 0 0 4px var(--focus);
+}
+/* Selected text has to be repainted opaque, or it would vanish along with the
+   rest of this layer's colour. */
+.ed-ta::selection {
+  background: var(--primary-flat);
+  color: var(--foreground);
+}
+/* Three reasons the textarea goes back to painting its own text: nothing to
+   colour (plain text), an IME mid-composition (candidate text is not in the DOM
+   yet, so there is nothing underneath to show through), and 轻量模式 (a file
+   too big to re-tokenise on every keystroke).
+
+   The first two only hide the layer — it stays laid out, because the find bar
+   measures matches against it. 轻量模式 is the one that removes it. */
+dialog.fm-edit.plain .ed-hl,
+dialog.fm-edit.composing .ed-hl {
+  visibility: hidden;
+}
+dialog.fm-edit.light .ed-hl {
+  display: none;
+}
+dialog.fm-edit.plain .ed-ta,
+dialog.fm-edit.composing .ed-ta,
+dialog.fm-edit.light .ed-ta {
+  color: var(--foreground);
+}
+dialog.fm-edit.wrap .ed-ta,
+dialog.fm-edit.wrap .ed-hl,
+dialog.fm-edit.wrap .ed-shift {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+dialog.fm-edit.wrap .ed-shift {
+  width: var(--ed-w);
+}
+dialog.fm-edit.wrap .ed-ta {
+  overflow-x: hidden;
+}
+
+/* status bar */
+.ed-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--default-500);
+  font-variant-numeric: tabular-nums;
+}
+.ed-status .ed-mode {
+  color: var(--warning);
+}
+.ed-pos {
+  min-width: 108px;
+}
+
+/* Syntax colours. Deliberately few: this is a config-file editor, and six hues
+   that survive both themes beat twenty that only work in one. */
+dialog.fm-edit {
+  --t-com: #6b7280;
+  --t-str: #067d51;
+  --t-kw: #8250df;
+  --t-num: #b35309;
+  --t-tag: #b3245c;
+  --t-atr: #9a5b09;
+  --t-var: #0a6b8a;
+  --t-fn: #005bc4;
+}
+@media (prefers-color-scheme: dark) {
+  dialog.fm-edit {
+    --t-com: #7d8590;
+    --t-str: #6bd39a;
+    --t-kw: #c297ff;
+    --t-num: #ffa657;
+    --t-tag: #ff7b9a;
+    --t-atr: #ffc978;
+    --t-var: #6fd3e8;
+    --t-fn: #79b8ff;
+  }
+}
+.t-com {
+  color: var(--t-com);
+  font-style: italic;
+}
+.t-str {
+  color: var(--t-str);
+}
+.t-kw {
+  color: var(--t-kw);
+}
+.t-num {
+  color: var(--t-num);
+}
+.t-tag {
+  color: var(--t-tag);
+}
+.t-atr {
+  color: var(--t-atr);
+}
+.t-var {
+  color: var(--t-var);
+}
+.t-fn {
+  color: var(--t-fn);
+}
+
+/* Underlined tabs: a 2px primary cursor under the active item. */
+.tabbar {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+.tabbar button {
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--default-500);
+  padding: 8px 0 10px;
+  font-size: 13.5px;
+  font-weight: 400;
+  margin-bottom: -1px;
+}
+.tabbar button:hover:not(.on) {
+  background: transparent;
+  color: var(--foreground);
+}
+.tabbar button:active {
+  transform: none;
+}
+.tabbar button.on {
+  color: var(--foreground);
+  font-weight: 500;
+  border-bottom-color: var(--primary);
+}
+
+/* Progress: rounded track in default-200, primary indicator. */
+.meter {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--default-200);
+  overflow: hidden;
+}
+.meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width var(--base);
+}
+
+/* ---------- misc ---------- */
+.empty {
+  text-align: center;
+  padding: 72px 20px;
+  color: var(--default-500);
+  font-size: 14px;
+}
+.empty .big {
+  display: none;
+}
+.err {
+  color: var(--danger);
+  font-size: 13px;
+  min-height: 18px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.stat b {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+.stat span {
+  font-size: 12.5px;
+  color: var(--default-500);
+}
+
+#toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+/* The kind used to be a 6px dot; it is now a glyph, which says the same thing
+   with the same restraint but survives being read at a glance. Colour stays on
+   the icon alone — the slab itself is never tinted. */
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  padding: 11px 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--foreground);
+  box-shadow: var(--shadow-md);
+  max-width: 360px;
+  animation: toast-in 260ms cubic-bezier(0.32, 0, 0.24, 1);
+}
+.toast > .ico {
+  /* nudged down to sit on the first line's optical centre, not its box top */
+  margin-top: 0.18em;
+  color: var(--default-400);
+}
+.toast.ok > .ico {
+  color: var(--success);
+}
+.toast.err > .ico {
+  color: var(--danger);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+dialog {
+  border: none;
+  background: var(--content1);
+  color: var(--foreground);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: min(440px, 92vw);
+  box-shadow: var(--shadow-sm);
+}
+dialog[open] {
+  animation: dialog-in 260ms cubic-bezier(0.32, 0, 0.24, 1);
+}
+/* Materialise rather than fade: scale and blur arrive together. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
+dialog h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+dialog::backdrop {
+  background: var(--overlay);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+/* ---------- onboarding ----------
+   Two surfaces for one flow: a wizard that explains vouchers and the approval
+   queue on first login, and — once it is closed — a collapsible checklist that
+   rides above the page until all four boxes have ticked themselves. */
+dialog.ob {
+  width: min(620px, 94vw);
+  padding: 0;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  /* Its own enter/exit, replacing the shared dialog keyframe: a keyframe only
+     plays on open, so closing used to be an instant disappearance. `overlay`
+     and `display` ride along as discrete steps, which is what keeps the node in
+     the top layer long enough for the exit to be seen. */
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 170ms var(--ease-out), transform 170ms var(--ease-out),
+    overlay 170ms allow-discrete, display 170ms allow-discrete;
+}
+dialog.ob[open] {
+  animation: none;
+}
+/* Exit is the same shape as the entrance, so closing reads as a reversal. */
+dialog.ob:not([open]) {
+  opacity: 0;
+  transform: scale(0.97);
+}
+dialog.ob::backdrop {
+  opacity: 1;
+  transition: opacity 170ms var(--ease-out), overlay 170ms allow-discrete,
+    display 170ms allow-discrete;
+}
+dialog.ob:not([open])::backdrop {
+  opacity: 0;
+}
+@starting-style {
+  dialog.ob[open] {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  dialog.ob[open]::backdrop {
+    opacity: 0;
+  }
+}
+.ob-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(84vh, 760px);
+}
+.ob-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--divider);
+}
+/* Progress reads as a row of tracks; the current one stretches. The bar itself
+   is 5px, but the button around it is padded out to a real 24px touch target —
+   the visible mark and the thing you can hit are not the same box. */
+.ob-dots {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.ob-dots button {
+  padding: 10px 3px;
+  background: none;
+  border-radius: var(--radius-sm);
+}
+.ob-dots button:hover:not(:disabled),
+.ob-dots button:active:not(:disabled) {
+  background: none;
+  transform: none;
+}
+.ob-dots button > i {
+  display: block;
+  width: 20px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--default-200);
+  transition: background var(--base), width var(--base);
+}
+.ob-dots button:hover:not(:disabled) > i {
+  background: var(--default-300);
+}
+.ob-dots button.past > i {
+  background: var(--primary-flat);
+}
+.ob-dots button.on > i {
+  width: 32px;
+  background: var(--primary);
+}
+
+/* Steps cross-fade along the axis you are travelling, so "back" undoes "next"
+   rather than replaying it, and the blur keeps it from reading as two sheets of
+   text sliding past each other. The motion itself lives in app.js (openWizard):
+   parking the element on the start state is a style change of its own, so a CSS
+   transition would fire on the way into that state and eat the one that counts. */
+.ob-body {
+  padding: 24px 26px 22px;
+  overflow: auto;
+}
+.ob-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--primary-strong);
+}
+.ob-body h2 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.019em;
+  line-height: 1.25;
+  margin: 5px 0 14px;
+}
+.ob-body p {
+  margin: 0 0 12px;
+  color: var(--default-600);
+  font-size: 14.5px;
+}
+.ob-body p b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.ob-body p.sub {
+  font-size: 13px;
+}
+.ob-body .field {
+  margin: 16px 0 4px;
+}
+
+.ob-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 14px;
+}
+.ob-flow span {
+  background: var(--default-100);
+  color: var(--default-600);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.ob-flow span .ico {
+  color: var(--default-400);
+}
+.ob-flow i {
+  display: inline-flex;
+  color: var(--default-300);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.ob-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.ob-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--divider);
+}
+
+/* --- the checklist that stays behind --- */
+.ob-bar {
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), 0 0 0 1.5px var(--primary-flat);
+  margin-bottom: 20px;
+  padding: 4px;
+  /* lets `block-size: auto` below actually be a transition endpoint */
+  interpolate-size: allow-keywords;
+}
+/* Folding open used to be a jump cut. Where ::details-content is understood the
+   panel now grows into place; where it is not, the whole rule is dropped and
+   the behaviour is exactly what it was before. */
+.ob-bar::details-content {
+  block-size: 0;
+  overflow: hidden;
+  transition: block-size 300ms var(--ease-out), content-visibility 300ms allow-discrete;
+}
+.ob-bar[open]::details-content {
+  block-size: auto;
+}
+.ob-bar > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  list-style: none;
+  transition: background var(--fast);
+}
+.ob-bar > summary::-webkit-details-marker {
+  display: none;
+}
+.ob-bar > summary:hover {
+  background: var(--default-100);
+}
+.ob-bar > summary b {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Was a CSS border triangle; now it holds a chevron glyph, but the behaviour
+   is unchanged — it points right when closed and down when open. */
+.ob-caret {
+  flex: none;
+  display: inline-flex;
+  color: var(--default-400);
+  font-size: 15px;
+  transition: transform var(--base);
+}
+.ob-bar[open] > summary .ob-caret {
+  transform: rotate(90deg);
+}
+.ob-meter {
+  display: block;
+  flex: 1;
+  max-width: 220px;
+}
+/* No entrance animation here on purpose: the bar is re-rendered on every page
+   change, and something you see on every navigation must not animate. */
+.ob-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 2px 14px 0;
+}
+.ob-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+}
+.ob-task + .ob-task {
+  border-top: 1px solid var(--divider);
+}
+.ob-task-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+}
+.ob-task.done .ob-task-name {
+  color: var(--default-500);
+}
+/* An empty ring that fills and draws a tick once the box is genuinely done. */
+.ob-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  border: 1.5px solid var(--default-300);
+  border-radius: 50%;
+  transition: background var(--base), border-color var(--base);
+}
+.ob-check::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid var(--primary-foreground);
+  border-width: 0 2px 2px 0;
+  /* not scale(0) — a tick that grows from nothing reads as a glitch; from 0.4
+     with the opacity carrying the rest it reads as being drawn */
+  opacity: 0;
+  transform: translateY(-1px) rotate(45deg) scale(0.4);
+  transition: transform var(--base), opacity var(--base);
+}
+.ob-task.done .ob-check {
+  background: var(--success);
+  border-color: var(--success);
+}
+.ob-task.done .ob-check::after {
+  opacity: 1;
+  transform: translateY(-1px) rotate(45deg) scale(1);
+}
+/* A box only ticks itself four times in an account's life, and only ever as a
+   consequence of real work finishing. That is rare enough to be worth marking:
+   `.just` is set for one render, on the box that changed since the last one. */
+.ob-task.just .ob-check {
+  animation: ob-tick 440ms var(--ease-out);
+}
+.ob-task.just .ob-check::after {
+  animation: ob-tick-draw 300ms var(--ease-out) 70ms backwards;
+}
+@keyframes ob-tick {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--success-flat);
+  }
+  40% {
+    transform: scale(1.16);
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@keyframes ob-tick-draw {
+  from {
+    opacity: 0;
+    transform: translateY(-1px) rotate(45deg) scale(0.4);
+  }
+}
+.ob-bar-foot {
+  display: flex;
+  gap: 8px;
+  padding: 6px 14px 12px;
+}
+
+@media (max-width: 640px) {
+  /* Scoped to the bar: the same meter appears in the 账号 page's progress card,
+     where it is the only thing showing progress and must stay. */
+  .ob-bar .ob-meter {
+    display: none;
+  }
+  .ob-task {
+    flex-wrap: wrap;
+  }
+  .ob-task > .row {
+    width: 100%;
+    padding-left: 30px;
+  }
+  .ob-foot,
+  .ob-top {
+    padding-inline: 14px;
+  }
+  .ob-body {
+    padding: 20px 16px 18px;
+  }
+}
+
+/* ---------- create-instance stepper ----------
+   券 → 模板 → 配置 → 确认。Completed steps become buttons you can jump back
+   to; the connector after a completed step picks up the primary tint. */
+.steps {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 0;
+  padding: 0;
+  margin: -6px 0 18px;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+}
+.steps li + li::before {
+  content: "";
+  width: 24px;
+  height: 1.5px;
+  margin: 0 6px;
+  border-radius: 1px;
+  background: var(--default-200);
+}
+.steps li.past + li::before,
+.steps li.on::before {
+  background: var(--primary-flat);
+}
+.steps li > button,
+.steps li > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 4px 5px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--default-500);
+  background: none;
+}
+.steps li > button {
+  color: var(--default-600);
+}
+.steps li > button:hover {
+  background: var(--default-100);
+}
+.steps i {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--default-100);
+  color: var(--default-500);
+  transition: background var(--base), color var(--base);
+}
+.steps li.on > span {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.steps li.on i {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.steps li.past i {
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+
+#nv-slot > form,
+#nv-slot > .cat:first-child {
+  animation: ob-step 220ms cubic-bezier(0.32, 0, 0.24, 1);
+}
+
+/* ---------- 套餐卡（新建实例第 1 步） ----------
+   仿云商套餐页的层级：名字 + 右上角大字价格，分隔线下面一行行规格；
+   选中态不靠按钮，整张卡可点，右上角折角打钩。 */
+.grid.cols.plans {
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+}
+.plan {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow var(--base), transform var(--fast);
+}
+.plan:hover {
+  box-shadow: var(--shadow-md);
+}
+.plan:active {
+  transform: scale(0.99);
+}
+.plan.on {
+  box-shadow: var(--shadow-sm), 0 0 0 2px var(--primary);
+}
+/* 折角：两条透明边拼出的直角三角，勾叠在上面 */
+.plan.on::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: 17px solid transparent;
+  border-top-color: var(--primary);
+  border-right-color: var(--primary);
+}
+.plan .tick {
+  display: none;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
+  color: var(--primary-foreground);
+}
+.plan.on .tick {
+  display: block;
+}
+.plan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--divider);
+}
+.plan-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+.plan-price {
+  font-size: 12.5px;
+  color: var(--default-500);
+  white-space: nowrap;
+}
+.plan-price b {
+  font-size: 20px;
+  color: var(--primary-strong);
+  letter-spacing: -0.02em;
+}
+.plan-price s {
+  color: var(--default-400);
+  margin-right: 3px;
+  font-size: 12px;
+}
+/* 名字后面那颗「直减」小标签 */
+.plan-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  vertical-align: middle;
+}
+.plan-rows {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+.plan-rows > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.plan-rows .ico {
+  color: var(--default-400);
+  flex: none;
+}
+.plan-rows span {
+  color: var(--default-500);
+}
+/* 券生效时整个规格区置灰；pointer-events 顺带挡掉套餐卡的点击，
+   不然 fieldset:disabled 只管得住表单控件。 */
+fieldset#nv-spec:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* 端口数量步进器，照着「IP 数量」那种 − 1 + 的样子 */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--default-200);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.stepper b {
+  min-width: 44px;
+  text-align: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.stepper button {
+  width: 34px;
+  padding-inline: 0;
+}
+
+.nv-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+.nv-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 9px 22px;
+  margin: 4px 0 18px;
+  font-size: 14px;
+}
+.nv-summary > span:nth-child(odd) {
+  color: var(--default-500);
+  white-space: nowrap;
+}
+.nv-summary > span:nth-child(even) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .nv-summary {
+    grid-template-columns: 1fr;
+    gap: 1px 0;
+  }
+  .nv-summary > span:nth-child(even) {
+    margin-bottom: 9px;
+  }
+}
+
+/* ---------- user agreement ----------
+   One text, three dressings: the checkbox row on the sign-in card, the dialog
+   it opens, and the standalone /terms page (public/terms.html) for a link that
+   can be handed out. The body arrives from /api/terms as HTML; .terms-doc is
+   the shared typography for it. */
+.agree {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 0 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--default-600);
+  cursor: pointer;
+}
+.agree input[type="checkbox"] {
+  flex: none;
+  margin-top: 2px;
+}
+/* A flex column, so the document is the only thing that scrolls and the
+   agree/close row can never be pushed out of the dialog's own scroller — on a
+   landscape phone the fixed chrome (title + meta + row) already eats 164px of a
+   390px screen, and the browser's default "just scroll the whole dialog" leaves
+   the buttons invisible with nothing to say they are there. */
+dialog.terms {
+  width: min(640px, 94vw);
+}
+dialog.terms[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+}
+dialog.terms > h3,
+dialog.terms > .terms-meta,
+dialog.terms > .row {
+  flex: none;
+}
+.terms-meta {
+  font-size: 12px;
+  color: var(--default-500);
+  margin-top: 4px;
+}
+/* Focusable (see showTerms) so the keyboard can scroll it — hence a ring of its
+   own, sitting just outside the text rather than on top of it. */
+.terms-doc:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+.terms-doc {
+  margin-top: 14px;
+  /* Inside the dialog it is the flex item that gives; the max-height is only for
+     the standalone /terms page, where it is not in a flex column. */
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(56vh, 560px);
+  overflow-y: auto;
+  /* the drag must not scroll the page behind the dialog once the text ends */
+  overscroll-behavior: contain;
+  padding-right: 10px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--default-600);
+}
+dialog.terms .terms-doc {
+  max-height: none;
+}
+.terms-doc h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin: 18px 0 8px;
+}
+.terms-doc h2:first-child {
+  margin-top: 2px;
+}
+.terms-doc p {
+  margin: 8px 0;
+}
+.terms-doc ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.terms-doc li {
+  margin: 5px 0;
+}
+.terms-doc b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* The standalone page: a plain reading column on the panel's background. */
+.terms-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+}
+.terms-page h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.terms-page .terms-doc {
+  margin-top: 20px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+.terms-page .back {
+  display: inline-block;
+  margin-top: 28px;
+  font-size: 13.5px;
+}
+
+/* ---------- standalone 404 page ----------
+   The panel's own routes all hide behind #/…, so a path that lands on 404.html
+   really names nothing. There is no app shell here — like the boot screen, the
+   page carries the brand's face on its own. */
+.nf-page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px;
+}
+.nf {
+  text-align: center;
+  animation: nf-in 300ms var(--ease-out) both;
+}
+.nf-mark {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 20px;
+}
+.nf-mark rect {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+}
+.nf-code {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  /* default-500, not 400: this is text, and 400 lands under AA at 13px */
+  color: var(--default-500);
+}
+.nf h1 {
+  margin: 4px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+/* .sub is a flex row for its usual icon-plus-text job; here it carries bare
+   text, so let it be a paragraph — .nf's text-align centres it, and balance
+   keeps the wrap from stranding a two-glyph orphan line on phones. */
+.nf .sub {
+  display: block;
+  text-wrap: balance;
+}
+.nf .btn {
+  margin-top: 24px;
+}
+@keyframes nf-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-color-scheme: dark) {
+  /* same shift the dotmark makes: the flat primary reads dull on black */
+  .nf-mark rect {
+    stroke: var(--primary-strong);
+  }
+}
+
+/* ---------- scrollbars ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--default-300) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--default-300);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- accessibility preferences ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled),
+  .btn:active,
+  .tpl:active,
+  .addr:active {
+    transform: none;
+  }
+  /* The rule above shortens every fade to nothing but says nothing about when
+     one starts, so the mark would still switch on a dot at a time over most of
+     a second — staccato instead of animated. Land it whole. */
+  .dotmark.assemble circle {
+    animation-delay: 0s !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  header.top {
+    background: var(--background);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  dialog::backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --divider: rgba(17, 17, 17, 0.3);
+    --default-500: #3f3f46;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --divider: rgba(255, 255, 255, 0.32);
+      --default-500: #d4d4d8;
+    }
+  }
+  .card,
+  dialog,
+  .toast,
+  .ob-bar {
+    outline: 1px solid var(--divider);
+  }
+  .badge {
+    outline: 1px solid currentColor;
+  }
+}
+
+/* ===========================================================================
+   phones, touch, and short screens
+   ---------------------------------------------------------------------------
+   Three separate questions, so three separate queries — they only coincide on a
+   phone, and each is wrong on its own for something:
+
+     (max-width: 640px)   LAYOUT: a narrow screen. 640 is the one layout
+                          breakpoint in this file; the three older 620px blocks
+                          were folded into it so there is a single number.
+     (pointer: coarse)    INPUT: a finger, whatever the width. A touch laptop
+                          matches only this one and still needs 44px targets and
+                          16px fields.
+     (max-height: 520px)  ROOM: a landscape phone. Wide, but with nothing to
+                          spare vertically, which is where anything sized in vh
+                          and anything sticky becomes the problem.
+
+   Nothing in here changes the desktop rendering: every rule is inside one of the
+   three queries, and a 1440×900 mouse-driven browser matches none of them.
+   =========================================================================== */
+
+@media (max-width: 640px) {
+  /* ---- page frame: less gutter, less padding, more content ---- */
+  .shell {
+    padding: 0 max(16px, env(safe-area-inset-right)) calc(72px + env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+  }
+  header.top {
+    margin-bottom: 20px;
+  }
+  header.top .inner {
+    gap: 8px 12px;
+    padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  }
+  /* ---- header in two rows ----
+     Identity on the first row, the five destinations on the second. Letting the
+     row wrap (see flex-wrap on header.top .inner) is what keeps the bar's
+     min-content from becoming the layout viewport and scaling every page down;
+     this block decides what the second row looks like.
+     .spacer is the desktop's flex:1 gap and only gets in the way here. */
+  .spacer {
+    display: none;
+  }
+  /* Equal fifths, glyph over label, and deliberately NOT a scroller. Stacked, a
+     tab costs ~55px instead of ~100, so all five fit a 320px screen: nothing
+     hides behind a swipe on a track whose scrollbar is invisible, and there is no
+     scroll container to clip the active pill's shadow out of 3px of padding. The
+      labels stay — the glyphs cannot carry these five alone, 概览 and 新建实例
+     differ by one character. */
+  nav.tabs {
+    order: 3;
+    width: 100%;
+    /* one line of five; wrapping would give two ragged rows instead */
+    flex-wrap: nowrap;
+    padding: 3px;
+  }
+  nav.tabs a {
+    /* the pending count is taken out of flow below and anchors to this box */
+    position: relative;
+    /* `1 1 0`, not `1 1 auto`: equal fifths, so 账号 is as easy to hit as
+        概览 — otherwise the shortest label is the smallest target. */
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    /* the 44px floor; an 18px glyph over an 11px label lands there anyway */
+    min-height: 44px;
+    padding: 5px 3px;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+  /* .ico is 1.02em everywhere else, which under an 11px label is a smudge. */
+  nav.tabs a .ico {
+    width: 18px;
+    height: 18px;
+  }
+  /* The 待审 count rides the glyph's corner rather than following the label: in
+     flow it becomes a third line and costs the sticky bar another 15px on every
+     page. Solid rather than the flat primary tint, because a translucent chip
+     over a glyph this small reads as a smudge, and the ring is what cuts it out
+     of the track — or out of the active pill, which is a different colour. */
+  nav.tabs .badge.pending {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    padding: 0 4px;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 16px;
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--default-100);
+  }
+  nav.tabs a.active .badge.pending {
+    box-shadow: 0 0 0 2px var(--content1);
+  }
+  /* The username gives way, the 退出 button never does — it used to be pushed
+     clean off the right edge by a long name, with no way to scroll to it. */
+  .whoami {
+    margin-left: auto;
+    min-width: 0;
+    gap: 8px;
+  }
+  .whoami > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Under ~420px the name cannot share a row with the wordmark and the 退出
+     button at all, and an ellipsis on two characters is not information — so it
+     goes. The avatar still carries the initials, and 账号 spells it out. */
+  @media (max-width: 420px) {
+    .whoami > span {
+      display: none;
+    }
+  }
+  /* Nested inside the width query on purpose, against this file's "input is not a
+     width question" split: 退出 is the one .small button that is also a one-way
+     door, so on a phone it takes the full 44 rather than the dense-row 40. A
+     touchscreen laptop matches (pointer: coarse) too and its header must stay as
+     it is — hence the nesting instead of a line in the INPUT block. */
+  @media (pointer: coarse) {
+    .whoami button.small {
+      min-height: 44px;
+    }
+  }
+  .card {
+    padding: 16px;
+  }
+  .page-title {
+    gap: 8px 10px;
+    margin-bottom: 16px;
+  }
+  .page-title h1 {
+    font-size: 21px;
+  }
+  .empty {
+    padding: 48px 16px;
+  }
+  .kv {
+    gap: 3px 12px;
+  }
+  /* The underlined tabs are the one navigation inside a page; on a phone they
+     need to scroll rather than wrap, or the row grows taller than the content
+     it labels. */
+  .tabbar {
+    gap: 16px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tabbar button {
+    white-space: nowrap;
+    flex: none;
+  }
+
+  /* ---- record lists become cards ----
+     A seven-column list has no honest layout at 360px. .table-wrap does scroll
+     it, but the action column starts past the right edge and no cell lines up
+     with the heading that names it. Below 640 the table drops its table box and
+     each row becomes a card: first cell as the heading, every other cell as
+     `label  value`, actions in flow where a thumb reaches them.
+
+     A card rather than a sticky first column, because the (pointer: coarse) block
+     gives these wrappers -webkit-overflow-scrolling: touch, and that reinstates
+     the WebKit bug where sticky cells inside a scroller stop sticking — the fix
+     would come undone on exactly the devices it was for.
+
+     Opt-in via .cards, because .fm-table has a layout of its own (name column
+     takes the slack, sizes right-aligned and tabular) that display:block undoes.
+
+     Labels are stamped on as data-label by labelCards() after each render rather
+     than written into the markup: the heading text is already in the same
+     template string a few lines up, so writing it per cell would be the same
+     string twice across every table, and a new column would need two edits to
+     stay truthful. A table with no heading row (环境变量) gets no labels and needs
+     none — key first, value under it, which is what those want anyway. */
+  .table-wrap:has(> .cards) {
+    /* Nothing overflows any more, so the wrapper drops the ±8px bleed it needed
+       to make room for a scrollbar it no longer has. Longhand, not `padding: 0`:
+       on the admin tables the wrapper IS the card (class="card table-wrap"), and
+       this selector outranks .card — a shorthand would take the card's own
+       padding with it and stand the text on the card's edge. */
+    overflow-x: visible;
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+  .card.table-wrap:has(> .cards) {
+    padding-inline: 16px;
+  }
+  /* Dropping the table box is the whole trick. The tbody the parser inserts on
+     its own has to go with it, or it keeps the rows in a table box regardless. */
+  .cards,
+  .cards tbody {
+    display: block;
+  }
+  /* The heading row's job has moved into the per-cell labels. */
+  .cards tr:has(th) {
+    display: none;
+  }
+  .cards tr {
+    display: block;
+    padding: 12px 0;
+  }
+  /* `tr + tr` would match the first card too — the hidden heading row is still a
+     sibling — so the divider keys off the previous row being a data row. */
+  .cards tr:not(:has(th)) + tr {
+    border-top: 1px solid var(--divider);
+  }
+  .cards tr:first-child,
+  .cards tr:has(th) + tr {
+    padding-top: 0;
+  }
+  .cards tr:last-child {
+    padding-bottom: 0;
+  }
+  /* The `td[class]` half is not redundant: the tables section sets
+     `td[class] { display: table-cell }` at the same specificity a bare `.cards td`
+     would have, so this would win on source order alone and silently stop winning
+     if either block moved. Spelled out, a cell that borrows .sub / .mono / .row
+     restacks like any other. */
+  .cards td,
+  .cards td[class] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 3px 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .cards td::before {
+    content: attr(data-label);
+    flex: none;
+    min-width: 5.5em;
+    color: var(--default-500);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  /* The action column's heading is empty by design, and a table with no heading
+     row has no labels at all — neither has anything to print. */
+  .cards td[data-label=""]::before,
+  .cards td:not([data-label])::before {
+    display: none;
+  }
+  /* A field whose value is a control takes the whole line rather than 5.5em of
+     label plus a sliver — this is the 对外地址 input that was 29px wide. */
+  .cards td > input,
+  .cards td > select,
+  .cards td > textarea {
+    flex: 1 1 100%;
+  }
+  /* The first cell is the record's name — 用户 / 邀请码 / 实例 / 站点 / 时间 /
+     环境变量 KEY / 主机端口. It heads the card instead of sitting in the label
+     column, the way it already heads the row. */
+  .cards td:first-child,
+  .cards td[class]:first-child {
+    display: block;
+    padding: 0 0 6px;
+    font-size: 14.5px;
+  }
+  .cards td:first-child::before {
+    display: none;
+  }
+  /* The empty-list line spans the card; it is not a field of a record. */
+  .cards td[colspan],
+  .cards td[colspan][class] {
+    display: block;
+    padding: 0;
+    font-size: 13.5px;
+  }
+  /* The 320px cap is a column width; inside a card the cell is already the card. */
+  .cards td.wrap {
+    max-width: none;
+  }
+  /* A row tint made sense when rows were rows; on a card it reads as a selection
+     that will not clear. */
+  .cards tr:not(:has(th)):hover td {
+    background: none;
+  }
+
+  /* ---- dialogs: a phone has no room for a centred box with margins ---- */
+  dialog {
+    width: min(440px, calc(100vw - 24px));
+    padding: 18px;
+    max-height: calc(100dvh - 24px);
+  }
+  dialog h3 {
+    font-size: 16px;
+  }
+
+  /* ---- toasts: full width at the top ----
+     They used to sit bottom-right at 360px wide, which on a phone is both off
+     the side of the screen and inside the home-indicator gesture strip, so
+     every 已保存 / 出错了 went unseen. */
+  #toasts {
+    top: calc(8px + env(safe-area-inset-top));
+    bottom: auto;
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+  }
+  .toast {
+    max-width: none;
+  }
+
+  /* ---- the drop zone is a click target on a phone, not a drop target ---- */
+  .dropzone {
+    min-height: 128px;
+    padding: 16px;
+  }
+  .dropzone .big {
+    font-size: 24px;
+  }
+  .dropzone .head {
+    font-size: 14px;
+  }
+
+  /* 10.4px annotations were legible only because the whole page used to be
+     scaled; now that it renders at true size, 12px is the floor. */
+  small,
+  .addr small,
+  .chip small {
+    font-size: 12px;
+  }
+
+  /* ---- long unbreakable strings: codes, hostnames, image names ---- */
+  .addr,
+  .mono,
+  code {
+    overflow-wrap: anywhere;
+  }
+
+  /* A glyph-led line (.hint / .sub / .err / .kv item) is a flex row: glyph, then
+     the bare text. Wrapping moves the whole text below the glyph and leaves it
+     stranded on its own line; forbidding the wrap instead squeezes any *element*
+     in the line — an inline <code> in a hint became a nine-line character column.
+     So on a phone these stop being flex rows at all and go back to being text
+     with a leading inline glyph, which wraps the way prose does. `.ico` already
+     carries the baseline nudge for exactly this case; it only needs the gap that
+     flex used to provide. */
+  .hint,
+  .sub,
+  .err,
+  .kv span,
+  .stat > span {
+    display: block;
+  }
+  .hint > .ico,
+  .sub > .ico,
+  .err > .ico,
+  .kv span > .ico,
+  .stat > span > .ico {
+    margin-right: 6px;
+  }
+
+  /* Four figures in one row become 3+1 with an orphan; two columns of two reads
+     as a deliberate block. */
+  #stats,
+  .card .row#stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 12px;
+  }
+  .stat b {
+    font-size: 21px;
+  }
+  /* The port label inside an address pill is a whole clause ("数据库端口（内部） ·
+     3306/tcp"); it may wrap onto its own line under the address, but it must not
+     be squeezed into a five-character column beside it. */
+  .addr small {
+    flex: 1 0 100%;
+  }
+
+  /* break-all cuts words mid-glyph on every line; `anywhere` only breaks when a
+     word genuinely cannot fit, so log lines stay readable. */
+  pre.logs,
+  pre.term {
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  pre.logs {
+    max-height: min(52dvh, 460px);
+  }
+  /* The command line sticks to the bottom of the terminal card, so the on-screen
+     keyboard cannot bury it under the output pane.
+     吸底的是「按键条 + 命令行」这一整块，不是命令行自己：分开钉的话键盘会从
+     两者中间顶上来，按键条被推出视口，而它恰恰是手机上唯一的 Esc / Ctrl 来源。
+     bottom 取 safe-area 和键盘高度里大的那个 —— viewport-fit=cover 让布局视口
+     一直铺到 home indicator 底下，bottom:0 就贴在了那条杠上。 */
+  .term-foot {
+    position: sticky;
+    bottom: max(env(safe-area-inset-bottom), var(--kb, 0px));
+    z-index: 1;
+  }
+  .term-input input {
+    min-width: 0;
+  }
+  /* 280px 的地板在小屏上会把上面让出的高度整个吃回去。 */
+  pre.term {
+    min-height: 96px;
+  }
+  .term-sub {
+    display: none;
+  }
+
+  /* ---- create-instance wizard ----
+     The step rail scrolls rather than wraps: wrapped, the connector line before
+     the first step of the second row dangles off the left edge with nothing on
+     the other end of it. */
+  .steps {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -2px;
+  }
+  .steps::-webkit-scrollbar {
+    display: none;
+  }
+  .steps li {
+    flex: none;
+  }
+  /* The template gallery is ten thousand pixels long, and 上一步 / 下一步 used to
+     live at the very bottom of it. Pinned to the bottom of the screen instead,
+     bleeding to the card's edges. */
+  .nv-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    background: var(--content1);
+    margin: 18px -16px 0;
+    padding: 12px max(16px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+  }
+
+  /* A checkbox followed by a sentence: same orphaning as the glyph-led lines
+     above — allowed to wrap, the sentence moves below the box and leaves a lone
+     13px square on its own line. */
+  label.row {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+  label.row > input[type="checkbox"] {
+    margin-top: 0.2em;
+  }
+
+  /* ---- file manager: the toolbar was collapsing into four ragged rows ---- */
+  .fm-bar {
+    gap: 6px;
+  }
+  /* A deep path wrapped to four lines and ended on a dangling "/", which reads as
+     a truncated path. One scrolling line instead, scrolled to the tail — the
+     directory you are in is the part you need to see. */
+  .fm-crumbs {
+    order: -1;
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .fm-crumbs::-webkit-scrollbar {
+    display: none;
+  }
+  .fm-crumbs button {
+    flex: none;
+  }
+  .fm-jump {
+    gap: 6px;
+  }
+  /* Labels stay while there is room for them — an icon-only 新建文件夹 is a guess
+     on a device with no hover to reveal its tooltip. They only drop below 420px,
+     where the row would otherwise wrap to a third line. */
+  @media (max-width: 420px) {
+    .fm-bar #fm-mkdir span,
+    .fm-bar #fm-touch span {
+      display: none;
+    }
+  }
+
+  /* ---- editor: on a phone the dialog is simply the screen ---- */
+  dialog.fm-edit {
+    width: calc(100vw - 8px);
+    padding: 12px;
+  }
+  dialog.fm-edit[open] {
+    max-height: calc(100dvh - 8px);
+  }
+  /* Let the flex column decide: a fixed 60dvh leaves dead space above the fold
+     on a tall phone and overflows a short one. */
+  dialog.fm-edit > .ed-main {
+    height: auto;
+  }
+  .ed-tools {
+    gap: 2px;
+  }
+  /* At touch sizes the flags and the arrows alone fill the row, so the field
+     they belong to gets a line of its own instead of a 40px sliver. */
+  .ed-find {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 缩进 drops its label — the same string is spelled out in the status bar two
+     rows below, so the button only has to be recognisable, not self-describing. */
+  .ed-ind-label {
+    display: none;
+  }
+  .ed-status {
+    gap: 10px;
+  }
+  .ed-status > .ed-lang {
+    display: none;
+  }
+  .ed-pos {
+    min-width: 0;
+  }
+
+  /* ---- the file list is a row, not a record card ----
+     .cards is wrong here: it would erase what makes this table work (the name
+     column takes the slack, sizes are right-aligned and tabular) and turn each
+     file into a five-line block, which is unreadable for a directory of forty.
+     Instead each row becomes two lines with the actions beside them: name on
+     top, size and time under it, the four buttons pinned right and spanning both
+     — measured at 320px, all four were previously 266px off the right edge of a
+     scroller nothing suggested you could scroll. */
+  .fm-table thead {
+    display: none;
+  }
+  .fm-table,
+  .fm-table tbody {
+    display: block;
+  }
+  .fm-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+    column-gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .fm-table tr:last-child {
+    border-bottom: none;
+  }
+  .fm-table td,
+  .fm-table td[class] {
+    display: block;
+    padding: 0;
+    min-width: 0;
+  }
+  .fm-table td:first-child {
+    grid-area: 1 / 1;
+  }
+  /* The whole line opens the file, not just the glyph plus the characters of its
+     name — a short name in a wide row left most of the row dead to the touch. */
+  .fm-name {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  /* Size and time share the second line, pushed to opposite ends of it. */
+  .fm-table td.num {
+    grid-area: 2 / 1;
+    justify-self: start;
+    text-align: left;
+    font-size: 12px;
+    color: var(--default-500);
+  }
+  .fm-table td.sub {
+    grid-area: 2 / 1;
+    justify-self: end;
+    font-size: 12px;
+  }
+  .fm-acts {
+    grid-area: 1 / 2 / 3 / 3;
+    text-align: right;
+  }
+  /* A directory has no size, and the em dash that stands in for one reads as a
+     stray mark once the cell is a line of its own rather than a column. */
+  .fm-table tr:has(.fm-name.dir) td.num {
+    display: none;
+  }
+  /* Below this the two halves of the meta line would meet in the middle; the
+     modified time is the column a phone can most afford to lose. */
+  @media (max-width: 420px) {
+    .fm-table td.sub {
+      display: none;
+    }
+  }
+}
+
+@media (pointer: coarse) {
+  /* 软键盘上没有 Esc、没有 Ctrl、没有方向键 —— 而中断、退出、翻历史全靠它们。
+     所以在触摸设备上按键条一直在，不用先去开直连键盘。 */
+  .term-keys {
+    display: flex;
+  }
+  .term-keys button {
+    min-height: 40px;
+  }
+  /* 中断 / 清屏 收起来给直连键盘和最大化腾地方 —— 它们在上面那条按键条里
+     已经有一份了。这条挂在指针查询而不是宽度查询上：按键条也只在这里出现，
+     两者必须同进同退，否则窄窗口的桌面浏览器会两样都没有，中断就没了入口。 */
+  .term-desk {
+    display: none;
+  }
+  /* 16px is the line under which iOS zooms the page in on focus — and it never
+     zooms back out, so the user is left dragging a magnified panel around. This
+     is the single most disruptive mobile defect in a form-heavy app, and it is
+     an input-device question, not a width question. */
+  input,
+  select,
+  textarea,
+  .term-input input,
+  /* `.mono` is a class and outranks the bare `input` type selector, so without
+     these two every monospaced field — every 对外地址 box in the port tables —
+     would stay at 12.5px and keep triggering the zoom. */
+  input.mono,
+  textarea.mono {
+    font-size: 16px;
+  }
+  /* Same 16px floor, applied to the editor through its own variable so that all
+     three of its layers move together — bumping only the textarea would slide
+     the text out from under the line numbers and the syntax colours. */
+  dialog.fm-edit {
+    --ed-fs: max(var(--ed-fs-pref, 13px), 16px);
+  }
+  /* 44px is the smallest target a finger hits reliably. Buttons here are
+     inline-flex with centred content, so a min-height only grows the hit box —
+     the glyph or label inside does not move. */
+  button,
+  .btn {
+    min-height: 44px;
+  }
+  button.small,
+  .btn.small {
+    min-height: 40px;
+    padding: 8px 14px;
+  }
+  input,
+  select {
+    min-height: 44px;
+  }
+  input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+  /* The agreement row is a required control on the sign-in card; at 13×13 it was
+     the smallest mandatory target in the product. */
+  .agree {
+    align-items: center;
+    min-height: 44px;
+  }
+  .agree input[type="checkbox"] {
+    margin-top: 0;
+  }
+  .addr {
+    min-height: 40px;
+  }
+  /* Dense rows keep a smaller but still deliberate target, with room between the
+     buttons so 删除 is not adjacent to 重命名 under a fingertip. */
+  .fm-acts button {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 9px 10px;
+    margin-left: 6px;
+  }
+  .fm-name {
+    min-height: 44px;
+    padding: 8px 0;
+  }
+  /* 40, matching the other dense-row controls: a path segment is a navigation
+     target, and the ones in a deep path are only two characters wide. */
+  .fm-crumbs button {
+    min-height: 40px;
+    padding: 8px;
+  }
+  /* Scrollable panes: keep the gesture inside the pane instead of handing it to
+     the page once the pane hits its end, and let iOS scroll them with momentum. */
+  pre.logs,
+  pre.term,
+  .table-wrap,
+  .filelist,
+  .terms-doc {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-height: 520px) {
+  /* Landscape phone: the height is the scarce axis. Anything measured in vh, and
+     anything sticky, is taxing a 390px-tall screen. */
+  header.top {
+    position: static;
+  }
+  pre.term {
+    height: calc(46dvh - var(--kb, 0px));
+    min-height: 120px;
+  }
+  /* 横屏时高度是最稀缺的，键条压扁一点，但不能没有 —— 横屏正是打字最多的姿势。 */
+  .term-keys {
+    padding-top: 5px;
+  }
+  .term-keys button {
+    padding: 4px 10px;
+    min-height: 32px;
+  }
+  pre.logs {
+    max-height: 44dvh;
+  }
+  dialog.fm-edit > .ed-main {
+    height: 38dvh;
+    min-height: 96px;
+  }
+  dialog {
+    padding: 16px;
+  }
+  /* Landscape phone: the status bar's tail is all context and no action, and
+     the row it would wrap onto costs more than it is worth here. */
+  .ed-status > :nth-last-child(-n + 3) {
+    display: none;
+  }
+  .dropzone {
+    min-height: 92px;
+  }
+  .dropzone .big {
+    display: none;
+  }
+  /* The sign-in card is mostly ceremony above the first field; on a short screen
+     the ceremony is what goes. */
+  .auth-wrap {
+    align-content: start;
+    padding: 12px;
+  }
+  .dotmark {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 8px;
+  }
+  .auth {
+    padding: 20px;
+  }
+  .auth h1 {
+    font-size: 19px;
+  }
+  .auth .sub {
+    display: none;
+  }
+  .auth .switch {
+    margin: 14px 0 12px;
+  }
+}
+
+/* ---- announcements ---- */
+.announcement-bar {
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+  padding: 4px;
+  interpolate-size: allow-keywords;
+}
+.announcement-bar::details-content {
+  block-size: 0;
+  overflow: hidden;
+  transition: block-size 300ms var(--ease-out), content-visibility 300ms allow-discrete;
+}
+.announcement-bar[open]::details-content {
+  block-size: auto;
+}
+.announcement-bar > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  list-style: none;
+  transition: background var(--fast);
+}
+.announcement-bar > summary::-webkit-details-marker { display: none; }
+.announcement-bar > summary:hover { background: var(--default-100); }
+.announcement-bar > summary b {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.announcement-bar-caret {
+  transition: transform 300ms var(--ease-out);
+  flex-shrink: 0;
+}
+.announcement-bar[open] > summary .announcement-bar-caret {
+  transform: rotate(90deg);
+}
+.announcement-bar-caret svg { width: 16px; height: 16px; }
+
+.announcement-bar-content {
+  padding: 2px 2px 0;
+}
+
+.announcement-banner {
+  padding: 10px 16px;
+  font-size: 0.88em;
+  line-height: 1.55;
+  border-radius: var(--radius-sm);
+}
+.announcement-banner + .announcement-banner {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--divider);
+}
+
+.announcement-banner.info {
+  color: var(--primary-strong);
+}
+.announcement-banner.warning {
+  color: var(--warning);
+}
+.announcement-banner.critical {
+  color: var(--danger);
+}
+
+.announcement-banner-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.announcement-banner-ico {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.announcement-banner-ico svg {
+  width: 18px;
+  height: 18px;
+}
+
+.announcement-banner-body {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.announcement-banner-body p { margin: 0; }
+.announcement-banner-body p + p { margin-top: 6px; }
+.announcement-banner-body a { color: inherit; text-decoration: underline; }
+.announcement-banner-body ul,
+.announcement-banner-body ol { margin: 4px 0 0; padding-left: 18px; }
+.announcement-banner-body code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(0,0,0,0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.announcement-banner-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  padding: 2px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--fast);
+}
+.announcement-banner-close:hover { opacity: 1; }
+.announcement-banner-close svg { width: 16px; height: 16px; }
+
+/* panel (homepage) */
+.announcement-item + .announcement-item {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+
+.announcement-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.announcement-item-head b {
+  font-size: 0.92em;
+}
+
+.announcement-item-body {
+  font-size: 0.88em;
+  line-height: 1.6;
+  color: var(--foreground);
+  word-break: break-word;
+}
+.announcement-item-body p { margin: 0 0 6px; }
+.announcement-item-body p:last-child { margin-bottom: 0; }
+.announcement-item-body a { color: var(--primary); text-decoration: underline; }
+.announcement-item-body ul,
+.announcement-item-body ol { margin: 4px 0 0; padding-left: 18px; }
+.announcement-item-body code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--default-100);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.announcement-item-body pre {
+  background: var(--default-100);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.announcement-item-body pre code {
+  background: none;
+  padding: 0;
+}
+.announcement-item-body blockquote {
+  margin: 6px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--default-300);
+  color: var(--default-600);
+}
+
+@media (prefers-color-scheme: dark) {
+  .announcement-banner-body code {
+    background: rgba(255,255,255,0.08);
+  }
+}

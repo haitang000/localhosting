@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>用户协议 · localhosting</title>
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='5' width='22' height='22' rx='7' fill='none' stroke='%23006FEE' stroke-width='3'/></svg>"
+    />
+  </head>
+  <body>
+    <div class="terms-page">
+      <h1>用户协议</h1>
+      <div class="terms-meta" id="meta"></div>
+      <div class="terms-doc" id="doc">正在加载…</div>
+      <a class="back" href="/">← 返回面板</a>
+    </div>
+    <!-- 正文的唯一出处是 src/terms.js，经 /api/terms 取来；登录页的弹窗也读同一份。 -->
+    <script type="module">
+      const doc = document.getElementById('doc');
+      try {
+        const res = await fetch('/api/terms');
+        if (!res.ok) throw new Error(`请求失败 (${res.status})`);
+        const t = await res.json();
+        // 门槛关掉时这页仍然可以外发，所以要说清楚这套条款当前并没有在生效。
+        document.getElementById('meta').textContent =
+          `版本 ${t.version} · 更新于 ${t.updated}` +
+          (t.required ? '' : ' · 本面板当前未启用协议门槛，以下文本仅供参考');
+        doc.innerHTML = t.html;
+      } catch (err) {
+        doc.textContent = `协议加载失败：${err.message}。请刷新重试。`;
+      }
+    </script>
+  </body>
+</html>

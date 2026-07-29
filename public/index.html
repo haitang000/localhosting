@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <!-- interactive-widget: 默认软键盘会平移整个视口，吸底的控制台命令行因此被顶出
+         屏幕。resizes-content 让键盘弹起时视口真的变短，dvh 和 sticky 才按预期工作。 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>localhosting · 容器面板</title>
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Single rounded square in the primary colour, at the large radius. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='5' width='22' height='22' rx='7' fill='none' stroke='%23006FEE' stroke-width='3'/></svg>"
+    />
+  </head>
+  <body>
+    <div id="app" class="boot">
+      <div class="loading" role="status" aria-label="正在加载">
+        <svg class="loader" viewBox="0 0 32 32" aria-hidden="true">
+          <rect class="track" x="5" y="5" width="22" height="22" rx="7" />
+          <rect class="trace" x="5" y="5" width="22" height="22" rx="7" />
+        </svg>
+      </div>
+    </div>
+    <div id="toasts"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
