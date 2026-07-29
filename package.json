@@ -9,6 +9,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
+    "setup": "node scripts/setup.js",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "admin:reset": "node scripts/reset-admin.js"

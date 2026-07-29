@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import express from 'express';
 import { config, ROOT, panelBaseUrl, panelAddressUnset } from './config.js';
 import { attachUser, bootstrapAdmin } from './auth.js';
@@ -183,6 +185,53 @@ app.use((err, _req, res, _next) => {
 });
 
 const boot = bootstrapAdmin();
+
+// ── 首次启动检测 ──
+const envPath = path.join(ROOT, '.env');
+const isFirstLaunch = !fs.existsSync(envPath) || (!config.publicHost && !config.panelPublicUrl);
+if (isFirstLaunch) {
+  if (process.stdin.isTTY) {
+    console.log('');
+    console.log('  ╔═══════════════════════════════════════════╗');
+    console.log('  ║    欢迎使用 localhosting 面板！            ║');
+    console.log('  ║    检测到首次启动，需要进行基础配置。      ║');
+    console.log('  ╚═══════════════════════════════════════════╝');
+    console.log('');
+    process.stdout.write('  现在打开设置向导？(Y/n) ');
+    const buf = [];
+    let onData;
+    await new Promise((resolve) => {
+      onData = (chunk) => {
+        for (const b of chunk) { if (b === 0x0d || b === 0x0a) { resolve(); return; } buf.push(b); }
+      };
+      process.stdin.on('data', onData);
+      process.stdin.once('end', resolve);
+    });
+    process.stdin.off('data', onData);
+    const answer = Buffer.from(buf).toString('utf8').trim().toLowerCase();
+    if (answer !== 'n' && answer !== 'no') {
+      console.log('');
+      const cp = spawn(process.execPath, [path.join(ROOT, 'scripts', 'setup.js')], {
+        stdio: 'inherit', cwd: ROOT,
+      });
+      await new Promise((resolve) => cp.on('exit', resolve));
+      console.log('\n  ✅ 配置完成，面板将继续启动。\n');
+    } else {
+      console.log('  已跳过，可随时运行 npm run setup 重新配置。\n');
+    }
+  } else {
+    console.warn('');
+    console.warn('  ╔═══════════════════════════════════════════╗');
+    console.warn('  ║  首次启动：缺少公网地址或关键配置。       ║');
+    console.warn('  ║  请先运行 npm run setup 完成基础设置。    ║');
+    console.warn('  ╚═══════════════════════════════════════════╝');
+    console.warn('');
+    console.warn('  或手动编辑 .env，确保以下项至少一项非空：');
+    console.warn('    PUBLIC_HOST       — 内网穿透/公网域名');
+    console.warn('    PANEL_PUBLIC_URL  — 面板完整入口地址');
+    console.warn('');
+  }
+}
 
 const server = app.listen(config.port, config.host, async () => {
   console.log(`\n  localhosting 面板已启动  →  http://localhost:${config.port}`);
