@@ -322,6 +322,305 @@ async function showTerms({ onAgree } = {}) {
   }
 }
 
+/* ---------------- 工作量证明 PoW ----------------
+   服务端给前缀 + 难度，前端算一个 nonce 使 sha256(前缀+nonce) 的前 N 位
+   为 0。对真人零感知（后台 worker 里算，默认 18 位 ≈ 零点几秒），对脚本是
+   每个 token 实打实的算力开销。用纯 JS 实现而非 crypto.subtle：面板常走
+   http 局域网访问，subtle 只在 https/localhost 才存在。 */
+
+/** 验证计算中的加载态：3×3 点阵错峰闪烁（和品牌点阵同一套语言）。 */
+const BLINK_DOTS = '<span class="dotblink" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+
+function sha256Hex(msg) {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+  const bytes = new TextEncoder().encode(msg);
+  const bitLen = bytes.length * 8;
+  const len = (((bytes.length + 8) >> 6) + 1) * 64;
+  const buf = new Uint8Array(len);
+  buf.set(bytes);
+  buf[bytes.length] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(len - 8, Math.floor(bitLen / 0x100000000));
+  dv.setUint32(len - 4, bitLen >>> 0);
+  const w = new Uint32Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
+  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
+  for (let i = 0; i < len; i += 64) {
+    for (let j = 0; j < 16; j++) w[j] = dv.getUint32(i + j * 4);
+    for (let j = 16; j < 64; j++) {
+      const s0 = rotr(w[j - 15], 7) ^ rotr(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+      const s1 = rotr(w[j - 2], 17) ^ rotr(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) >>> 0;
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+    for (let j = 0; j < 64; j++) {
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const t1 = (h + S1 + ((e & f) ^ (~e & g)) + K[j] + w[j]) >>> 0;
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const t2 = (S0 + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0; h5 = (h5 + f) >>> 0; h6 = (h6 + g) >>> 0; h7 = (h7 + h) >>> 0;
+  }
+  return [h0, h1, h2, h3, h4, h5, h6, h7].map((v) => v.toString(16).padStart(8, '0')).join('');
+}
+
+/** 哈希前导零位数是否 ≥ bits。 */
+function powPasses(hex, bits) {
+  if (bits <= 0) return true;
+  let zeros = 0;
+  for (let i = 0; i < hex.length; i++) {
+    const nib = parseInt(hex[i], 16);
+    if (nib === 0) { zeros += 4; continue; }
+    for (let b = 0x8; b > 0 && (nib & b) === 0; b >>= 1) zeros++;
+    break;
+  }
+  return zeros >= bits;
+}
+
+const POW_WORKER_SRC = `
+  const sha256 = ${sha256Hex.toString()};
+  const powPasses = ${powPasses.toString()};
+  self.onmessage = (e) => {
+    const { prefix, bits } = e.data;
+    const expected = 2 ** bits;
+    let nonce = 0;
+    try {
+      while (true) {
+        if (powPasses(sha256(prefix + nonce), bits)) {
+          self.postMessage({ nonce: String(nonce) });
+          return;
+        }
+        nonce++;
+        if ((nonce & 0xfff) === 0) {
+          self.postMessage({ progress: Math.min(100, Math.round((nonce / expected) * 1000) / 10) });
+        }
+        if (nonce > 0x7fffffff) break;
+      }
+      self.postMessage({ error: '验证计算超时' });
+    } catch (err) {
+      self.postMessage({ error: String((err && err.message) || err) });
+    }
+  };
+`;
+
+let powWorker = null;
+function getPowWorker() {
+  if (typeof Worker === 'undefined' || !URL || !URL.createObjectURL) return null;
+  try {
+    if (!powWorker) {
+      powWorker = new Worker(URL.createObjectURL(new Blob([POW_WORKER_SRC], { type: 'text/javascript' })));
+    }
+    return powWorker;
+  } catch {
+    return null;
+  }
+}
+
+/** 计算 PoW，worker 可用就走 worker，否则主线程分块算避免卡界面。 */
+function solvePow({ prefix, bits }, onProgress) {
+  return new Promise((resolve, reject) => {
+    const worker = getPowWorker();
+    if (worker) {
+      const onMsg = (e) => {
+        if (e.data && e.data.progress != null) { onProgress?.(e.data.progress); return; }
+        worker.removeEventListener('message', onMsg);
+        worker.removeEventListener('error', onErr);
+        if (e.data && e.data.nonce != null) resolve(e.data.nonce);
+        else reject(new Error((e.data && e.data.error) || '验证计算失败'));
+      };
+      const onErr = () => {
+        worker.removeEventListener('message', onMsg);
+        reject(new Error('验证计算失败'));
+      };
+      worker.addEventListener('message', onMsg);
+      worker.addEventListener('error', onErr);
+      worker.postMessage({ prefix, bits });
+    } else {
+      let nonce = 0;
+      const expected = 2 ** bits;
+      const tick = () => {
+        for (let i = 0; i < 4096; i++) {
+          if (powPasses(sha256Hex(prefix + nonce), bits)) return resolve(String(nonce));
+          nonce++;
+        }
+        onProgress?.(Math.min(100, Math.round((nonce / expected) * 1000) / 10));
+        setTimeout(tick, 0);
+      };
+      tick();
+    }
+  });
+}
+
+/** 取 PoW 前缀 → 算出 nonce → 返回可直接提交的 { prefix, nonce }。 */
+async function getPowProof(onProgress) {
+  const p = await api('/auth/pow');
+  const nonce = await solvePow(p, onProgress);
+  return { prefix: p.prefix, nonce };
+}
+
+/** 浏览器环境自报信号：屏幕/缩放/时区/语言/画布哈希，服务端只做合理性校验。 */
+function getHints() {
+  const h = {
+    dpr: window.devicePixelRatio || 1,
+    sw: window.screen?.width || 0,
+    sh: window.screen?.height || 0,
+    tz: new Date().getTimezoneOffset(),
+    lang: (navigator.languages?.length ? navigator.languages : [navigator.language]).slice(0, 8),
+  };
+  try {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 32;
+    const g = c.getContext('2d');
+    if (g) {
+      g.textBaseline = 'top';
+      g.font = '14px Arial';
+      g.fillStyle = '#f60';
+      g.fillRect(0, 0, 64, 32);
+      g.fillStyle = '#069';
+      g.fillText('localhosting', 2, 2);
+      h.canvas = c.toDataURL();
+    }
+  } catch {}
+  return h;
+}
+
+/* ---------------- 图片回正验证 ----------------
+   Behavior 分析落在不确定区时，服务端发来一张已旋转的 SVG 图片；弹窗里把
+   它拖回正位（或点按钮 ±15° 微调）即通过。取消弹窗视为放弃本次验证，
+   resolve(null)，调用方恢复待验证状态。 */
+function solveRotatePuzzle(challenge) {
+  return new Promise((resolve) => {
+    document.getElementById('puzzle-dlg')?.remove();
+    const dlg = document.createElement('dialog');
+    dlg.id = 'puzzle-dlg';
+    dlg.className = 'puzzle';
+    dlg.setAttribute('aria-labelledby', 'puzzle-title');
+    dlg.innerHTML = `
+      <h3 id="puzzle-title">${icon('rotate-cw')}请将图片旋转回正</h3>
+      <p class="puzzle-tip">拖动图片旋转，让图里的「上方」对准顶部的三角标记；也可以用按钮微调。</p>
+      <div class="puzzle-stage" id="puzzle-stage" tabindex="0" role="slider" aria-label="旋转图片"
+           aria-valuemin="0" aria-valuemax="359" aria-valuenow="0" aria-valuetext="0 度">
+        <span class="puzzle-notch" aria-hidden="true"></span>
+        <img class="puzzle-img" src="${esc(challenge.image)}" alt="旋转验证图片" draggable="false" />
+      </div>
+      <div class="puzzle-readout"><span id="puzzle-angle">0°</span></div>
+      <div class="row puzzle-btns">
+        <button type="button" class="ghost" id="puzzle-ccw" title="逆时针旋转 15°">${icon('undo-2')}</button>
+        <button type="button" class="ghost" id="puzzle-cw" title="顺时针旋转 15°">${icon('rotate-cw')}</button>
+      </div>
+      <div class="err" id="puzzle-err"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:8px">
+        <button class="ghost" data-cancel>取消</button>
+        <button class="primary" data-done>${icon('check')}完成</button>
+      </div>`;
+    document.body.append(dlg);
+
+    let settled = false;
+    let deg = 0;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      dlg.close();
+      resolve(val);
+    };
+
+    const stage = dlg.querySelector('#puzzle-stage');
+    const img = dlg.querySelector('.puzzle-img');
+    const angleEl = dlg.querySelector('#puzzle-angle');
+    const errEl = dlg.querySelector('#puzzle-err');
+    const doneBtn = dlg.querySelector('[data-done]');
+
+    const norm = (d) => ((d % 360) + 360) % 360;
+    const paint = () => {
+      img.style.transform = `rotate(${deg}deg)`;
+      angleEl.textContent = `${Math.round(deg)}°`;
+      stage.setAttribute('aria-valuenow', Math.round(deg));
+      stage.setAttribute('aria-valuetext', `${Math.round(deg)} 度`);
+    };
+    const nudge = (d) => {
+      deg = norm(deg + d);
+      paint();
+    };
+
+    // 拖拽旋转：以转盘圆心为基准算指针角度差。
+    let drag = null;
+    stage.addEventListener('pointerdown', (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      const rect = stage.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const angleOf = (p) => Math.atan2(p.clientY - cy, p.clientX - cx) * (180 / Math.PI);
+      drag = { start: angleOf(e) - deg };
+      stage.setPointerCapture(e.pointerId);
+      stage.classList.add('dragging');
+      e.preventDefault();
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const rect = stage.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const cur = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+      deg = norm(cur - drag.start);
+      paint();
+    });
+    const endDrag = (e) => {
+      if (!drag) return;
+      drag = null;
+      stage.classList.remove('dragging');
+      if (stage.hasPointerCapture(e.pointerId)) stage.releasePointerCapture(e.pointerId);
+    };
+    stage.addEventListener('pointerup', endDrag);
+    stage.addEventListener('pointercancel', endDrag);
+    stage.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); nudge(-15); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); nudge(15); }
+    });
+
+    dlg.querySelector('#puzzle-ccw').onclick = () => nudge(-15);
+    dlg.querySelector('#puzzle-cw').onclick = () => nudge(15);
+
+    doneBtn.onclick = async () => {
+      doneBtn.disabled = true;
+      errEl.textContent = '';
+      try {
+        const r = await api('/auth/captcha', {
+          method: 'POST',
+          body: { id: challenge.id, angle: Math.round(deg) },
+        });
+        finish(r.token);
+      } catch (err) {
+        doneBtn.disabled = false;
+        errEl.textContent = err.message;
+      }
+    };
+
+    dlg.querySelector('[data-cancel]').onclick = () => finish(null);
+    dlg.addEventListener('click', (e) => {
+      if (e.target === dlg) finish(null);
+    });
+    dlg.addEventListener('cancel', () => finish(null));
+    dlg.onclose = () => {
+      if (!settled) resolve(null);
+      dlg.remove();
+    };
+    dlg.showModal();
+  });
+}
+
 /* ---------------- auth screen ---------------- */
 /**
  * Eases the sign-in card from the height it had to the height it now has.
@@ -342,6 +641,51 @@ function animateAuthHeight(from) {
   card
     .animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 260, easing: EASE_OUT })
     .finished.finally(() => (card.style.overflow = ''));
+}
+
+/* CAPTCHA 组件收缩包裹标签文字；文字换长度时（正在验证 → 验证通过 →
+   验证失败，点击重试）宽度会跳，这里用跟 animateAuthHeight 同一套
+   WAAPI 技巧把它补成平滑过渡。 */
+function animateWidgetWidth(el, from) {
+  if (!el || !from || REDUCED_MOTION.matches) return;
+  const to = el.offsetWidth;
+  if (from === to) return;
+  el.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration: 220, easing: EASE_OUT });
+}
+
+/* 标签文字过渡：旧字拆成单字 span 从左往右逐个淡出，再换上新字逐个
+   淡入（错峰 60ms、淡入 160ms），宽度动画在换字后量好新宽度再补。
+   文字没变时直接跳过，不闪。每次调用都会作废旧定时器，只有最后一次
+   换字生效——快速连续触发（如验证失败后立刻重试）不会串台。 */
+function setTurnstileLabel(el, label, text) {
+  if (label.textContent === text) return;
+  clearTimeout(label._fadeTimer);
+  const from = el.offsetWidth;
+  const oldText = label.textContent;
+  const fadeOutMs = 160;
+  // 渐隐时长逐字递减：第 i 个字 160 - i*10ms（保底 60ms），后面的字走得更快
+  const fadeMs = (i) => Math.max(60, fadeOutMs - i * 10);
+  const swapMs = Math.max(0, (oldText.length - 1) * 60) + fadeMs(Math.max(0, oldText.length - 1));
+  label.innerHTML = [...oldText]
+    .map(
+      (ch, i) =>
+        `<span class="fade-out" style="animation-delay:${i * 60}ms;animation-duration:${fadeMs(i)}ms">${
+          ch === ' ' ? '\u00A0' : esc(ch)
+        }</span>`
+    )
+    .join('');
+  label._fadeTimer = setTimeout(() => {
+    // 渐显时长同样逐字递减：第 i 个字 160 - i*10ms（保底 60ms）
+    label.innerHTML = [...text]
+      .map(
+        (ch, i) =>
+          `<span style="animation-delay:${i * 60}ms;animation-duration:${Math.max(60, fadeOutMs - i * 10)}ms">${
+            ch === ' ' ? '\u00A0' : esc(ch)
+          }</span>`
+      )
+      .join('');
+    animateWidgetWidth(el, from);
+  }, swapMs);
 }
 
 /**
@@ -378,9 +722,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
          <div class="turnstile" id="turnstile" role="button" tabindex="0" aria-label="我不是机器人，点击验证">
            <span class="turnstile-icon" id="turnstile-icon"></span>
            <span class="turnstile-label">我不是机器人</span>
-
          </div>
-         <div class="turnstile-status" id="turnstile-status"></div>
        </div>
        ${
          mode !== 'register'
@@ -431,7 +773,6 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
   let turnstileToken = null;
   const turnstileEl = document.getElementById('turnstile');
   const turnstileIcon = document.getElementById('turnstile-icon');
-  const turnstileStatus = document.getElementById('turnstile-status');
   const turnstileLabel = turnstileEl?.querySelector('.turnstile-label');
 
   function createRipple(e) {
@@ -448,23 +789,30 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
     ripple.addEventListener('animationend', () => ripple.remove());
   }
 
-  // 鼠标/触摸轨迹追踪
+  // 鼠标/触摸轨迹追踪（点击也算一个采样点：有些人不动鼠标光用键盘）
   let trajCleanup = null;
   if (trajCleanup) trajCleanup();
   const trajPoints = [];
   const onMove = (e) => {
     if (trajPoints.length >= 500) return;
+    const t = Date.now();
+    const last = trajPoints[trajPoints.length - 1];
+    if (last && t <= last.t) return; // 时间戳必须严格递增，重复点会整条判脚本
     trajPoints.push({
       x: Math.round(e.clientX ?? e.touches?.[0]?.clientX ?? 0),
       y: Math.round(e.clientY ?? e.touches?.[0]?.clientY ?? 0),
-      t: Date.now(),
+      t,
     });
   };
   document.addEventListener('mousemove', onMove, { passive: true });
   document.addEventListener('touchmove', onMove, { passive: true });
+  document.addEventListener('pointerdown', onMove, { passive: true });
+  document.addEventListener('pointerup', onMove, { passive: true });
   trajCleanup = () => {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('pointerdown', onMove);
+    document.removeEventListener('pointerup', onMove);
   };
 
   function getTrajectory() {
@@ -515,24 +863,44 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
   }
 
   if (turnstileEl) {
+    let verifying = false;
     const doVerify = async (e) => {
-      if (turnstileVerified) return;
-      turnstileLabel.textContent = '我不是机器人';
+      if (turnstileVerified || verifying) return;
+      verifying = true;
+      // 先摘掉错误态（红字、抖动），再换文字——不然旧红字会带着 error 色渲染进淡出动画
       turnstileEl.classList.remove('error');
+      turnstileEl.classList.remove('shake');
+      setTurnstileLabel(turnstileEl, turnstileLabel, '我不是机器人');
       createRipple(e);
       turnstileEl.classList.add('loading');
-      turnstileIcon.innerHTML = '<svg class="loader turnstile-loader" viewBox="0 0 32 32" aria-hidden="true"><rect class="track" x="5" y="5" width="22" height="22" rx="7" /><rect class="trace" x="5" y="5" width="22" height="22" rx="7" /></svg>';
+      turnstileIcon.innerHTML = BLINK_DOTS;
       try {
+        // 先做工作量证明（防脚本的算力闸）
+        setTurnstileLabel(turnstileEl, turnstileLabel, '正在验证');
+        const pow = await getPowProof();
         const data = await api('/auth/turnstile', {
           method: 'POST',
-          body: { trajectory: getTrajectory(), formBehavior: getFormBehavior() },
+          body: { trajectory: getTrajectory(), formBehavior: getFormBehavior(), hints: getHints(), pow },
         });
-        turnstileToken = data.token;
+        // 行为分析落在不确定区：弹窗让人把图片回正，解完才有 token。
+        if (data.challenge) {
+          const token = await solveRotatePuzzle(data.challenge);
+          if (token === null) {
+            turnstileEl.classList.remove('loading');
+            turnstileIcon.innerHTML = '';
+            setTurnstileLabel(turnstileEl, turnstileLabel, '我不是机器人');
+            verifying = false;
+            return;
+          }
+          turnstileToken = token;
+        } else {
+          turnstileToken = data.token;
+        }
         turnstileVerified = true;
         turnstileEl.classList.remove('loading');
         turnstileEl.classList.add('verified');
         turnstileIcon.innerHTML = '<svg class="turnstile-check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 12 9 17 20 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        turnstileLabel.textContent = '验证通过';
+        setTurnstileLabel(turnstileEl, turnstileLabel, '验证通过');
       } catch (err) {
         turnstileEl.classList.remove('loading');
         turnstileEl.classList.add('shake');
@@ -542,7 +910,9 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
           turnstileEl.removeEventListener('animationend', onShake);
         });
         turnstileIcon.innerHTML = '';
-        turnstileLabel.textContent = '验证失败，点击重试';
+        setTurnstileLabel(turnstileEl, turnstileLabel, '验证失败，点击重试');
+      } finally {
+        verifying = false;
       }
     };
     turnstileEl.onclick = doVerify;
@@ -1399,7 +1769,6 @@ async function openCheckin() {
           <span class="turnstile-icon" id="checkin-turnstile-icon"></span>
           <span class="turnstile-label">我不是机器人</span>
         </div>
-        <div class="turnstile-status" id="checkin-turnstile-status"></div>
       </div>
       <div class="err" id="checkin-err"></div>
       <div class="row" style="justify-content:center;margin-top:16px;gap:8px">
@@ -1413,26 +1782,33 @@ async function openCheckin() {
   const turnstileEl = dlg.querySelector('#checkin-turnstile');
   const turnstileIcon = dlg.querySelector('#checkin-turnstile-icon');
   const turnstileLabel = turnstileEl?.querySelector('.turnstile-label');
-  const turnstileStatus = dlg.querySelector('#checkin-turnstile-status');
 
   let turnstileVerified = false;
   let turnstileToken = null;
+  let verifying = false;
 
   /* Track mouse/touch inside the dialog for behavior analysis */
   const traj = [];
   const onMove = (e) => {
     if (traj.length >= 500) return;
+    const t = Date.now();
+    const last = traj[traj.length - 1];
+    if (last && t <= last.t) return; // 时间戳必须严格递增
     traj.push({
       x: Math.round(e.clientX ?? e.touches?.[0]?.clientX ?? 0),
       y: Math.round(e.clientY ?? e.touches?.[0]?.clientY ?? 0),
-      t: Date.now(),
+      t,
     });
   };
   document.addEventListener('mousemove', onMove, { passive: true });
   document.addEventListener('touchmove', onMove, { passive: true });
+  document.addEventListener('pointerdown', onMove, { passive: true });
+  document.addEventListener('pointerup', onMove, { passive: true });
   const trajCleanup = () => {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('pointerdown', onMove);
+    document.removeEventListener('pointerup', onMove);
   };
 
   const getTrajectory = () => {
@@ -1463,23 +1839,42 @@ async function openCheckin() {
   };
 
   const doVerify = async (e) => {
-    if (turnstileVerified) return;
-    turnstileLabel.textContent = '我不是机器人';
+    if (turnstileVerified || verifying) return;
+    verifying = true;
+    // 先摘掉错误态（红字、抖动），再换文字——不然旧红字会带着 error 色渲染进淡出动画
     turnstileEl.classList.remove('error');
+    turnstileEl.classList.remove('shake');
+    setTurnstileLabel(turnstileEl, turnstileLabel, '我不是机器人');
     createRipple(e);
     turnstileEl.classList.add('loading');
-    turnstileIcon.innerHTML = '<svg class="loader turnstile-loader" viewBox="0 0 32 32" aria-hidden="true"><rect class="track" x="5" y="5" width="22" height="22" rx="7" /><rect class="trace" x="5" y="5" width="22" height="22" rx="7" /></svg>';
+    turnstileIcon.innerHTML = BLINK_DOTS;
     try {
+      // 先做工作量证明
+      setTurnstileLabel(turnstileEl, turnstileLabel, '正在验证');
+      const pow = await getPowProof();
       const data = await api('/auth/turnstile', {
         method: 'POST',
-        body: { trajectory: getTrajectory() },
+        body: { trajectory: getTrajectory(), hints: getHints(), pow },
       });
-      turnstileToken = data.token;
+      // 行为分析落在不确定区：弹窗让人把图片回正，解完才有 token。
+      if (data.challenge) {
+        const token = await solveRotatePuzzle(data.challenge);
+        if (token === null) {
+          turnstileEl.classList.remove('loading');
+          turnstileIcon.innerHTML = '';
+          setTurnstileLabel(turnstileEl, turnstileLabel, '我不是机器人');
+          verifying = false;
+          return;
+        }
+        turnstileToken = token;
+      } else {
+        turnstileToken = data.token;
+      }
       turnstileVerified = true;
       turnstileEl.classList.remove('loading');
       turnstileEl.classList.add('verified');
       turnstileIcon.innerHTML = '<svg class="turnstile-check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 12 9 17 20 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      turnstileLabel.textContent = '验证通过';
+      setTurnstileLabel(turnstileEl, turnstileLabel, '验证通过');
       submitBtn.disabled = false;
       submitBtn.focus();
     } catch (err) {
@@ -1491,7 +1886,9 @@ async function openCheckin() {
         turnstileEl.removeEventListener('animationend', onShake);
       });
       turnstileIcon.innerHTML = '';
-      turnstileLabel.textContent = '验证失败，点击重试';
+      setTurnstileLabel(turnstileEl, turnstileLabel, '验证失败，点击重试');
+    } finally {
+      verifying = false;
     }
   };
 

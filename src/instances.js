@@ -780,3 +780,25 @@ export async function reconcile() {
     }
   }
 }
+
+/* ----------------------------------------------------------- 维护任务 ------ */
+
+/**
+ * 待审批的申请没人处理会永远占着端口池（每个申请都从池子里领了端口），
+ * 攒多了管理员要一个个手动驳回。超过 PENDING_AUTO_REJECT_DAYS 天还没处理的
+ * 自动驳回：端口、资源券、积分全部归还，和手动驳回走同一条路径。
+ */
+function sweepStalePending() {
+  if (!(config.pendingRejectDays > 0)) return;
+  const cutoff = new Date(Date.now() - config.pendingRejectDays * 86400_000).toISOString();
+  const stale = db.prepare('SELECT * FROM instances WHERE status = ? AND created_at <= ?').all('pending', cutoff);
+  for (const row of stale) {
+    try {
+      rejectInstance(row, { username: '系统' }, `申请超过 ${config.pendingRejectDays} 天未处理，已自动关闭；需要的话重新提交即可`);
+    } catch {
+      /* 状态竞争失败就算了，下一个周期再试 */
+    }
+  }
+}
+setInterval(sweepStalePending, 3600_000).unref();
+sweepStalePending();

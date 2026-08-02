@@ -23,7 +23,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: '今天已经签到过了，明天再来吧' });
   }
 
-  if (!verifyTurnstile(turnstileToken)) {
+  if (!verifyTurnstile(turnstileToken, req.ip)) {
     return res.status(400).json({ error: '验证未通过，请重新验证' });
   }
 

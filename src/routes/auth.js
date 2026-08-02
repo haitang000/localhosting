@@ -16,7 +16,7 @@ import { usage } from '../instances.js';
 import { getInvite, inviteProblem, consume, publicInvite, vouchersFor } from '../invites.js';
 import { grantWelcomePoints, grantPoints, txnsFor } from '../points.js';
 import { publicOnboarding, updateOnboarding, markVoucherSeen } from '../onboarding.js';
-import { createTurnstile, verifyTurnstile } from '../captcha.js';
+import { createPow, verifyPow, createTurnstile, mintToken, verifyTurnstile, verifyChallenge } from '../captcha.js';
 import { config } from '../config.js';
 import { TERMS_VERSION } from '../terms.js';
 import * as announcements from '../announcements.js';
@@ -88,10 +88,49 @@ function recordWindow(key) {
   windows.set(key, [...(windows.get(key) ?? []), Date.now()]);
 }
 
-/** Cloudflare Turnstile 风格验证：生成一次性 Token */
+/** 工作量证明：签发一个一次性前缀 + 难度，前端算出 nonce 才能换行为验证。 */
+router.get('/pow', (req, res) => {
+  if (inWindow(`ts:${req.ip}`, 10 * 60_000).length >= 60) {
+    return res.status(429).json({ error: '验证请求过于频繁，请稍后再试' });
+  }
+  const pow = createPow(req.ip);
+  recordWindow(`ts:${req.ip}`);
+  res.json(pow);
+});
+
+/** Cloudflare Turnstile 风格验证：PoW + 行为分析，生成一次性 Token */
 router.post('/turnstile', (req, res) => {
-  const token = createTurnstile(req.body?.trajectory, req.body?.formBehavior);
-  if (!token) return res.status(400).json({ error: '行为验证未通过，请重试' });
+  // 发 token 本身不花钱，但无限量生成就是给脚本白嫖一个免费 CPU 循环；
+  // 60 次 / 10 分钟 / IP 对真人绰绰有余（注册和登录那边还有各自的频控）。
+  if (inWindow(`ts:${req.ip}`, 10 * 60_000).length >= 60) {
+    return res.status(429).json({ error: '验证请求过于频繁，请稍后再试' });
+  }
+  if (!config.captchaEnabled) {
+    // 关掉验证码时流程不变：直接发 token，机器人防护完全交给邀请码/限速。
+    recordWindow(`ts:${req.ip}`);
+    return res.json({ token: mintToken(req.ip) });
+  }
+  const pow = req.body?.pow;
+  if (!pow || !verifyPow(pow.prefix, pow.nonce, req.ip)) {
+    recordWindow(`ts:${req.ip}`);
+    return res.status(400).json({ error: '验证未通过，请刷新页面后重试' });
+  }
+  const result = createTurnstile(req.body?.trajectory, req.body?.formBehavior, req.body?.hints, req.ip);
+  recordWindow(`ts:${req.ip}`);
+  // 行为落在不确定区：发一张旋转图片让人回正，而不是直接放行或拒绝。
+  if (result?.challenge) return res.json({ challenge: result.challenge });
+  if (!result) return res.status(400).json({ error: '行为验证未通过，请重试' });
+  res.json({ token: result.token });
+});
+
+/** 图片回正验证：校验用户提交的回正角度，成功签发一次性 Token */
+router.post('/captcha', (req, res) => {
+  if (inWindow(`ts:${req.ip}`, 10 * 60_000).length >= 60) {
+    return res.status(429).json({ error: '验证请求过于频繁，请稍后再试' });
+  }
+  const token = verifyChallenge(req.body?.id, req.body?.angle, req.ip);
+  recordWindow(`ts:${req.ip}`);
+  if (!token) return res.status(400).json({ error: '图片旋转验证未通过，请重试' });
   res.json({ token });
 });
 
@@ -106,7 +145,7 @@ router.post('/register', async (req, res, next) => {
     if (!USERNAME_RE.test(username)) return res.status(400).json({ error: '用户名需为 3-32 位字母、数字、下划线或连字符' });
     if (password.length < 8) return res.status(400).json({ error: '密码至少 8 位' });
 
-    if (!verifyTurnstile(req.body.turnstile_token)) {
+    if (!verifyTurnstile(req.body.turnstile_token, req.ip)) {
       fail(`reg:${req.ip}`);
       return res.status(400).json({ error: '验证未通过，请重新验证' });
     }
@@ -163,7 +202,7 @@ router.post('/login', async (req, res, next) => {
     throttle(key);
     const terms = termsProblem(req.body);
     if (terms) return res.status(400).json({ error: terms });
-    if (!verifyTurnstile(req.body.turnstile_token)) {
+    if (!verifyTurnstile(req.body.turnstile_token, req.ip)) {
       fail(key);
       return res.status(400).json({ error: '验证未通过，请刷新页面重试' });
     }

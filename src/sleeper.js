@@ -24,6 +24,13 @@ import { emit } from './events.js';
 /** id -> { listeners, parked, waking, wakeTimer, traffic, relays } */
 const states = new Map();
 
+// 停放中的连接上限：单实例 64（浏览器一次唤醒的并发就 6-10 条），全局 512。
+// 唤醒期间连接会一直挂着，不设上限的话对着公开的实例端口打 SYN 就能让面板
+// 攒下一堆永不前进的 socket。
+const MAX_PARKED = 64;
+const MAX_PARKED_TOTAL = 512;
+let parkedCount = 0;
+
 function state(id) {
   let s = states.get(id);
   if (!s) {
@@ -125,7 +132,21 @@ function park(id, port, socket) {
   const s = state(id);
   socket.pause();
   socket.on('error', () => socket.destroy());
+  if (s.parked.length >= MAX_PARKED || parkedCount >= MAX_PARKED_TOTAL) {
+    // 停不下了：直接掐掉，别占着 socket 等唤醒。
+    socket.destroy();
+    return;
+  }
   s.parked.push({ socket, port });
+  parkedCount += 1;
+  // 客户端中途断开时把它从停放队列里摘掉，否则会一直躺在数组里占位。
+  socket.on('close', () => {
+    const i = s.parked.findIndex((p) => p.socket === socket);
+    if (i !== -1) {
+      s.parked.splice(i, 1);
+      parkedCount -= 1;
+    }
+  });
   if (s.waking || s.wakeTimer) return;
   // Give the browser's other parallel connections a moment to land before the
   // listeners go away, otherwise they get refused during the handover.
@@ -157,6 +178,7 @@ function relay(s, socket, port) {
 function flushParked(s, ok) {
   const parked = s.parked;
   s.parked = [];
+  parkedCount -= parked.length;
   for (const { socket, port } of parked) {
     if (ok) relay(s, socket, port);
     else socket.destroy();

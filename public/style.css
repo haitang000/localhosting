@@ -1099,6 +1099,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: fit-content;
+  max-width: 100%;
   padding: 12px 16px;
   border-radius: var(--radius-md);
   background: var(--content1);
@@ -1217,9 +1219,37 @@ textarea {
 .turnstile.verified .turnstile-check polyline {
   animation: checkmark-draw 320ms var(--ease-out) 80ms forwards;
 }
-.turnstile-loader {
-  width: 18px;
-  height: 18px;
+/* 验证计算中的点阵闪烁：3×3 白点错峰亮灭，沿行列扫过 */
+.dotblink {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 2px;
+}
+.dotblink i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #fff;
+  animation: dot-blink 1.2s ease-in-out infinite;
+}
+.dotblink i:nth-child(1) { animation-delay: 0s; }
+.dotblink i:nth-child(2) { animation-delay: 0.1s; }
+.dotblink i:nth-child(3) { animation-delay: 0.2s; }
+.dotblink i:nth-child(4) { animation-delay: 0.3s; }
+.dotblink i:nth-child(5) { animation-delay: 0.4s; }
+.dotblink i:nth-child(6) { animation-delay: 0.5s; }
+.dotblink i:nth-child(7) { animation-delay: 0.6s; }
+.dotblink i:nth-child(8) { animation-delay: 0.7s; }
+.dotblink i:nth-child(9) { animation-delay: 0.8s; }
+@keyframes dot-blink {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .turnstile-label {
   flex: 1;
@@ -1227,23 +1257,114 @@ textarea {
   font-weight: 500;
   color: var(--foreground);
   transition: color var(--fast);
+  white-space: nowrap;
+}
+/* 标签文字逐个渐显：每个字一个 span，错峰淡入 */
+.turnstile-label > span {
+  display: inline-block;
+  animation: turnstile-char 160ms var(--ease-out) both;
+}
+@keyframes turnstile-char {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* 旧字逐字淡出（从左往右，错峰 60ms；时长逐字递减，由行内样式覆盖） */
+.turnstile-label > span.fade-out {
+  animation: turnstile-char-out 160ms var(--ease-out) both;
+}
+@keyframes turnstile-char-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 .turnstile.verified .turnstile-label {
   color: var(--success);
 }
+.turnstile.error {
+  border-color: var(--danger);
+  background: var(--danger-flat);
+}
 .turnstile.error .turnstile-label {
   color: var(--danger);
 }
-.turnstile-status {
-  font-size: 12px;
-  color: var(--success);
+
+/* ---------- 图片回正验证弹窗 ----------
+   行为分析落在不确定区时的兜底关卡：把旋转过的图片拖回正位。 */
+dialog.puzzle {
+  width: min(340px, 92vw);
   text-align: center;
-  margin-top: 6px;
-  min-height: 18px;
-  transition: color var(--fast);
 }
-.turnstile.error .turnstile-status {
-  color: var(--danger);
+dialog.puzzle .puzzle-tip {
+  font-size: 13px;
+  color: var(--default-500);
+  margin: 6px 0 14px;
+}
+.puzzle-stage {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.puzzle-stage.dragging {
+  cursor: grabbing;
+}
+.puzzle-stage:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.puzzle-notch {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  translate: -50% 0;
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 13px solid var(--danger);
+  pointer-events: none;
+  z-index: 1;
+}
+.puzzle-img {
+  width: 164px;
+  height: 164px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  background: var(--content2);
+  pointer-events: none;
+  will-change: transform;
+}
+.puzzle-readout {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--default-500);
+  font-variant-numeric: tabular-nums;
+}
+.puzzle-btns {
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.puzzle-btns .ghost {
+  width: 44px;
+  padding: 8px 0;
+  display: inline-grid;
+  place-items: center;
 }
 
 /* ---------- template gallery ---------- */
@@ -3237,6 +3358,10 @@ dialog.terms .terms-doc {
      one starts, so the mark would still switch on a dot at a time over most of
      a second — staccato instead of animated. Land it whole. */
   .dotmark.assemble circle {
+    animation-delay: 0s !important;
+  }
+  /* Same for the CAPTCHA label's per-character stagger. */
+  .turnstile-label > span {
     animation-delay: 0s !important;
   }
 }

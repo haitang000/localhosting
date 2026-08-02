@@ -57,6 +57,18 @@ export const config = {
   // editing it and everyone re-consents on their next login.
   termsRequired: bool(process.env.TERMS_REQUIRED, true),
 
+  // --- 验证码（注册/登录/签到共用，全部自研，零外部依赖） ---
+  // 四层防线：行为分析（轨迹/打字节奏，通过线随机浮动）→ 工作量证明
+  //（sha256 前导零，CAPTCHA_POW_BITS 位，防规模注册的算力闸）→ 图片回正
+  // 挑战（旋转角度烘焙进几何坐标，标记里没有答案）→ 一次性 token（绑 IP、
+  // 签发/求解/使用各有最低间隔）。失败多的 IP 的 PoW 难度自动上调。
+  captchaEnabled: bool(process.env.CAPTCHA_ENABLED, true),
+  captchaPowBits: num(process.env.CAPTCHA_POW_BITS, 18),
+  captchaTolerance: num(process.env.CAPTCHA_TOLERANCE, 10),
+  captchaMinSolveMs: num(process.env.CAPTCHA_MIN_SOLVE_MS, 1000),
+  captchaMinTokenAgeMs: num(process.env.CAPTCHA_MIN_TOKEN_AGE_MS, 300),
+  captchaMaxChallengesPerIp: num(process.env.CAPTCHA_MAX_CHALLENGES_PER_IP, 3),
+
   // --- Docker ---
   dockerHost: process.env.DOCKER_HOST || '',
   containerPrefix: process.env.CONTAINER_PREFIX || 'lh',
@@ -121,6 +133,9 @@ export const config = {
   renewalPointsCost: num(process.env.RENEWAL_POINTS_COST, 100),
   // 续期一次延长的天数（默认 7 天）。
   renewalDays: num(process.env.RENEWAL_DAYS, 7),
+  // 待审批申请超过这么多天没人处理就自动驳回（归还端口、券和积分）。
+  // 0 关闭。防的是申请堆着不动、端口池被一点点吃光。
+  pendingRejectDays: num(process.env.PENDING_AUTO_REJECT_DAYS, 7),
 
   // --- Welcome gift: 新用户注册送一笔积分（以前是送一张静态网页券） ---
   // 100 分的默认盘子：可以开一台基础实例（0.1 核/128MB/7 天），
