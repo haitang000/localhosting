@@ -10,6 +10,8 @@ import { publicInvite } from '../invites.js';
 import { refundPoints, spendPoints } from '../points.js';
 import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
+import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
+import { panelName, panelColor, setSetting } from '../settings.js';
 
 export const router = Router();
 router.use(requireAdmin);
@@ -412,5 +414,76 @@ router.delete('/announcements/:id', (req, res) => {
   if (!ann) return res.status(404).json({ error: '公告不存在' });
   announcements.del(ann.id);
   audit(req.user, 'admin.announcement_delete', ann.title, null);
+  res.json({ ok: true });
+});
+
+// ---------- 面板设置 ----------
+router.get('/settings', (req, res) => {
+  res.json({ panelName: panelName(), panelColor: panelColor() });
+});
+
+router.patch('/settings', (req, res) => {
+  const { panelName: name, panelColor: color } = req.body || {};
+  if (name === undefined && color === undefined) {
+    return res.status(400).json({ error: '没有可保存的字段' });
+  }
+  if (name !== undefined) {
+    if (typeof name !== 'string') return res.status(400).json({ error: '面板名称无效' });
+    const clean = name.trim().slice(0, 40);
+    if (!clean) return res.status(400).json({ error: '面板名称不能为空' });
+    if (/[\r\n\t]/.test(clean)) return res.status(400).json({ error: '面板名称不能包含换行或制表符' });
+    setSetting('panel_name', clean);
+  }
+  if (color !== undefined) {
+    if (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+      return res.status(400).json({ error: '主题色需为 #RRGGBB 格式' });
+    }
+    setSetting('panel_color', color.toLowerCase());
+  }
+  audit(req.user, 'admin.settings_brand', name ?? color, JSON.stringify(req.body));
+  res.json({ panelName: panelName(), panelColor: panelColor() });
+});
+
+// ---------- 积分套餐 ----------
+router.get('/bundles', (req, res) => {
+  res.json({ bundles: listBundles() });
+});
+
+router.post('/bundles', (req, res) => {
+  try {
+    const bundle = createBundle(req.body || {});
+    audit(
+      req.user,
+      'admin.bundle_create',
+      bundle.name || `${bundle.memoryMb}MB/${bundle.cpus}核`,
+      `${bundle.memoryMb}MB · ${bundle.cpus} 核 · ${bundle.diskMb}MB 硬盘 → ${bundle.cost} 分`
+    );
+    res.status(201).json({ bundle });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/bundles/:id', (req, res) => {
+  try {
+    const bundle = updateBundle(Number(req.params.id), req.body || {});
+    if (!bundle) return res.status(404).json({ error: '套餐不存在' });
+    audit(
+      req.user,
+      'admin.bundle_update',
+      bundle.name || `${bundle.memoryMb}MB/${bundle.cpus}核`,
+      `${bundle.memoryMb}MB · ${bundle.cpus} 核 · ${bundle.diskMb}MB 硬盘 → ${bundle.cost} 分${bundle.enabled ? '' : '（下架）'}`
+    );
+    res.json({ bundle });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/bundles/:id', (req, res) => {
+  const bundle = listBundles().find((b) => b.id === Number(req.params.id));
+  if (!bundle) return res.status(404).json({ error: '套餐不存在' });
+  deleteBundle(bundle.id);
+  audit(req.user, 'admin.bundle_delete', bundle.name || `${bundle.memoryMb}MB/${bundle.cpus}核`, null);
   res.json({ ok: true });
 });

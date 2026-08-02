@@ -145,6 +145,29 @@ CREATE TABLE IF NOT EXISTS announcements (
   updated_at  TEXT NOT NULL
 );
 
+-- 积分套餐（管理后台「套餐」页维护）：内存 + CPU + 硬盘打包价。
+-- 首次启动用 POINTS_BUNDLES 播种，之后以这里的记录为准，改环境变量不再生效。
+CREATE TABLE IF NOT EXISTS bundles (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT    NOT NULL DEFAULT '',
+  memory_mb  INTEGER NOT NULL,
+  cpus       REAL    NOT NULL,
+  disk_mb    INTEGER NOT NULL DEFAULT 2048,
+  cost       INTEGER NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT    NOT NULL,
+  updated_at TEXT    NOT NULL
+);
+
+-- 面板级设置（key-value）：管理后台可改、不需要重启生效的东西。
+-- 首次启动用环境变量播种，之后以数据库里的值为准。
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);
 CREATE INDEX IF NOT EXISTS idx_sites_user ON sites(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
@@ -197,6 +220,8 @@ addColumn('sites', 'paid_points', 'INTEGER');
 addColumn('instances', 'paid_points', 'INTEGER');
 // 每日签到日期（YYYY-MM-DD），空 = 从未签到。用于阻止同一天多次签到。
 addColumn('users', 'last_checkin_date', 'TEXT');
+// 积分实例的数据卷配额（MB）；老实例没有这列，回退到全局 DISK_QUOTA_MB。
+addColumn('instances', 'disk_mb', 'INTEGER');
 
 export const now = () => new Date().toISOString();
 

@@ -39,6 +39,13 @@ export const config = {
   dataDir,
   sessionTtlDays: num(process.env.SESSION_TTL_DAYS, 14),
   trustProxy: bool(process.env.TRUST_PROXY, false),
+  // 面板品牌名（登录页、顶栏、浏览器标题）；只作 settings 表的播种值，
+  // 之后在管理后台 → 总览里改，改完立即生效。
+  panelName: (process.env.PANEL_NAME || 'localhosting').trim().slice(0, 40) || 'localhosting',
+  // 主题色（logo / 主按钮等强调色）；同上，settings 播种值，后台可改。
+  panelColor: /^#[0-9a-fA-F]{6}$/.test(process.env.PANEL_COLOR || '')
+    ? process.env.PANEL_COLOR
+    : '#006fee',
 
   // --- Bootstrap admin (created on first run if no users exist) ---
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
@@ -161,11 +168,18 @@ export const config = {
   pointsMaxMemoryMb: num(process.env.POINTS_MAX_MEMORY_MB, 16384),
   pointsMaxCpus: Number(process.env.POINTS_MAX_CPUS ?? 8),
   pointsMaxPorts: num(process.env.POINTS_MAX_PORTS, 4),
-  // 套餐直减：这几个内存 + CPU 组合按打包价卖，比逐档加配明显便宜
+  // 硬盘是实例数据卷的配额（超量自动停止，靠 diskguard 轮询兜底）：
+  // 基础价含 pointsInstanceDiskMb，往上每 pointsDiskStepMb 收 pointsDiskStepCost 分
+  pointsInstanceDiskMb: num(process.env.POINTS_INSTANCE_DISK_MB, 2048), // 基础价含的硬盘
+  pointsDiskStepMb: num(process.env.POINTS_DISK_STEP_MB, 2048),
+  pointsDiskStepCost: num(process.env.POINTS_DISK_STEP_COST, 100),
+  pointsMaxDiskMb: num(process.env.POINTS_MAX_DISK_MB, 16384),
+  // 套餐直减：这几个「内存 + CPU + 硬盘」组合按打包价卖，比逐档加配明显便宜
   //（2c2g 原价 890 → 650 约七三折，4c4g 原价 1730 → 1200 约七折）；端口费照收。
+  // 只作首次启动的种子数据：之后在管理后台「套餐」页改，改动存在数据库里。
   pointsBundles: JSON.parse(
     process.env.POINTS_BUNDLES ??
-      '[{"memoryMb":2048,"cpus":2,"cost":650},{"memoryMb":4096,"cpus":4,"cost":1200},{"memoryMb":8192,"cpus":4,"cost":2100},{"memoryMb":16384,"cpus":8,"cost":4200}]'
+      '[{"name":"2c2g","memoryMb":2048,"cpus":2,"diskMb":2048,"cost":650},{"name":"4c4g","memoryMb":4096,"cpus":4,"diskMb":4096,"cost":1200},{"name":"4c8g","memoryMb":8192,"cpus":4,"diskMb":8192,"cost":2100},{"name":"8c16g","memoryMb":16384,"cpus":8,"diskMb":16384,"cost":4200}]'
   ),
 
   // --- Container hardening ---

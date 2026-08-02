@@ -1,5 +1,6 @@
 import { db, now, audit } from './db.js';
 import { config } from './config.js';
+import { findBundle } from './bundles.js';
 
 /**
  * 积分：面板里的通用货币。新用户注册送 WELCOME_POINTS（默认 100），
@@ -27,11 +28,14 @@ export function priceInstanceSpec(spec = {}) {
   const baseMem = config.pointsInstanceMemoryMb;
   const baseCpus = config.pointsInstanceCpus;
   const basePorts = config.pointsInstancePorts;
+  const baseDisk = config.pointsInstanceDiskMb;
   const step = config.pointsMemStepMb;
+  const diskStep = config.pointsDiskStepMb;
 
   const memoryMb = Math.round(Number(spec.memoryMb ?? baseMem));
   const cpus = Number(spec.cpus ?? baseCpus);
   const ports = Math.round(Number(spec.ports ?? basePorts));
+  const diskMb = Math.round(Number(spec.diskMb ?? baseDisk));
 
   if (
     !Number.isInteger(memoryMb) ||
@@ -51,25 +55,32 @@ export function priceInstanceSpec(spec = {}) {
   if (!Number.isInteger(ports) || ports < basePorts || ports > config.pointsMaxPorts) {
     throw new Error(`对外端口需在 ${basePorts} - ${config.pointsMaxPorts} 个之间`);
   }
+  if (
+    !Number.isInteger(diskMb) ||
+    diskMb < baseDisk ||
+    diskMb > config.pointsMaxDiskMb ||
+    (diskMb - baseDisk) % diskStep !== 0
+  ) {
+    throw new Error(`硬盘需在 ${baseDisk} - ${config.pointsMaxDiskMb} MB 之间，按 ${diskStep} MB 一档选`);
+  }
 
   const cost =
-    memCpuCost(memoryMb, ticks) + (ports - basePorts) * config.pointsPortCost;
-  return { memoryMb, cpus: ticks / 10, ports, cost };
+    memCpuCost(memoryMb, ticks, diskMb) + (ports - basePorts) * config.pointsPortCost;
+  return { memoryMb, cpus: ticks / 10, diskMb, ports, cost };
 }
 
 /**
- * 内存 + CPU 部分的价：先看是不是打包套餐（POINTS_BUNDLES，比逐档加配
- * 便宜一点），对不上才按价目表逐档累加。端口费不在这里。
+ * 内存 + CPU + 硬盘部分的价：先看是不是打包套餐（管理后台维护，三样全对
+ * 才认），对不上才按价目表逐档累加。端口费不在这里。
  */
-function memCpuCost(memoryMb, ticks) {
-  const bundle = (config.pointsBundles ?? []).find(
-    (x) => x.memoryMb === memoryMb && Math.round(x.cpus * 10) === ticks
-  );
+function memCpuCost(memoryMb, ticks, diskMb) {
+  const bundle = findBundle(memoryMb, ticks, diskMb);
   if (bundle) return bundle.cost;
   return (
     config.instancePointsCost +
     ((memoryMb - config.pointsInstanceMemoryMb) / config.pointsMemStepMb) * config.pointsMemStepCost +
-    (ticks - Math.round(config.pointsInstanceCpus * 10)) * config.pointsCpuStepCost
+    (ticks - Math.round(config.pointsInstanceCpus * 10)) * config.pointsCpuStepCost +
+    ((diskMb - config.pointsInstanceDiskMb) / config.pointsDiskStepMb) * config.pointsDiskStepCost
   );
 }
 

@@ -20,8 +20,9 @@ function volumeNames(row) {
   return dk.volumeNamesFor(row.volume_name, paths);
 }
 
-export function quotaMbFor(_row) {
-  return config.diskQuotaMb;
+export function quotaMbFor(row) {
+  // 实例自己的磁盘配额（积分套餐/自定义带 diskMb）；老实例没这列，回退全局值
+  return row.disk_mb ?? config.diskQuotaMb;
 }
 
 /** Cached snapshot from the last tick, or null if this instance has no volume / hasn't been checked yet. */

@@ -20,6 +20,11 @@ import { router as fileRoutes } from './routes/files.js';
 import { router as adminRoutes } from './routes/admin.js';
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
+import { seedBundles, listBundles } from './bundles.js';
+import { seedSettings, panelName, panelColor } from './settings.js';
+
+seedBundles();
+seedSettings();
 
 const app = express();
 if (config.trustProxy) app.set('trust proxy', 1);
@@ -57,6 +62,8 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/config', (_req, res) => {
   res.json({
+    panelName: panelName(),
+    panelColor: panelColor(),
     publicHost: config.publicHost || null,
     publicScheme: config.publicScheme,
     // 面板自己的对外入口。addressUnset = 还没人告诉过面板它在公网上叫什么，
@@ -86,6 +93,7 @@ app.get('/api/config', (_req, res) => {
         cpus: config.pointsInstanceCpus,
         ports: config.pointsInstancePorts,
         days: config.pointsInstanceDays || null,
+        diskMb: config.pointsInstanceDiskMb,
       },
       addons: {
         memStepMb: config.pointsMemStepMb,
@@ -95,9 +103,12 @@ app.get('/api/config', (_req, res) => {
         maxMemoryMb: config.pointsMaxMemoryMb,
         maxCpus: config.pointsMaxCpus,
         maxPorts: config.pointsMaxPorts,
+        diskStepMb: config.pointsDiskStepMb,
+        diskStepCost: config.pointsDiskStepCost,
+        maxDiskMb: config.pointsMaxDiskMb,
       },
-      // 打包套餐：命中这些内存+CPU 组合时按直减价收，前端照此划原价
-      bundles: config.pointsBundles,
+      // 打包套餐：管理后台维护，内存 + CPU + 硬盘三样全对才认直减价
+      bundles: listBundles({ enabledOnly: true }),
     },
     console: { idleMinutes: config.consoleIdleMinutes },
     files: {

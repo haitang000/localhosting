@@ -16,6 +16,24 @@ const bytes = (n) => {
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`;
 };
 
+/* 磁盘容量：≥1GB 显示成 GB，否则 MB。 */
+const fmtMb = (mb) => (mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`);
+
+/* 主题色：--primary-strong / --primary-flat 已在 CSS 里用 color-mix 从
+   --primary 派生，这里只需写一个变量，logo 和整套强调色跟着变。
+   顺带把 favicon 的描边色也换成同款。 */
+function applyTheme(color) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color || '')) return;
+  const hex = color.toLowerCase();
+  document.documentElement.style.setProperty('--primary', hex);
+  const fav = document.querySelector('link[rel="icon"]');
+  if (fav) {
+    fav.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='5' width='22' height='22' rx='7' fill='none' stroke='%23${hex.slice(
+      1
+    )}' stroke-width='3'/></svg>`;
+  }
+}
+
 const when = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
 
 /* 剩余时长，粗到「天」为止 —— 还有 40 天的实例不需要知道是 40 天 3 小时，
@@ -696,13 +714,14 @@ function setTurnstileLabel(el, label, text) {
  */
 function renderAuth(mode = 'login', { fresh = true } = {}) {
   const open = !!state.cfg?.openRegistration;
+  const brand = state.cfg?.panelName || 'localhosting';
   // Measured before innerHTML throws the old card away.
   const fromHeight = app.querySelector('form.auth')?.offsetHeight ?? 0;
   app.className = 'auth-wrap';
   app.innerHTML = `
-    ${dotMark('localhosting', { assemble: fresh })}
+    ${dotMark(brand, { assemble: fresh })}
     <form class="card auth">
-      <h1>localhosting</h1>
+      <h1>${esc(brand)}</h1>
       <div class="sub">一键部署属于你自己的容器服务</div>
       <div class="switch">
         <button type="button" data-mode="login" class="${mode === 'login' ? 'on' : ''}">${icon(
@@ -1145,7 +1164,9 @@ function shell(active, inner) {
   app.className = '';
   app.innerHTML = `
     <header class="top"><div class="inner">
-      <div class="brand"><span class="brandmark">${icon('boxes')}</span>localhosting</div>
+      <div class="brand"><span class="brandmark">${icon('boxes')}</span>${esc(
+        state.cfg?.panelName || 'localhosting'
+      )}</div>
       <!-- aria-current as well as the .active pill: on a phone this strip is the
            only navigation, and it marks where you are with colour alone. -->
       <nav class="tabs">
@@ -1699,6 +1720,8 @@ function quotaBar(usage, quota) {
       <span>${icon('memory-stick')}已分配内存</span></div>
     <div class="stat"><b style="font-size:15px">${usage.cpus}</b>
       <span>${icon('cpu')}已分配 CPU</span></div>
+    <div class="stat"><b style="font-size:15px">${fmtMb(usage.diskMb ?? 0)}</b>
+      <span>${icon('hard-drive')}已分配硬盘</span></div>
     <div class="stat"><b style="font-size:15px">${usage.ports}</b>
       <span>${icon('plug')}已占用端口</span></div>
     <div class="sub" style="flex:1;min-width:180px;text-align:right">
@@ -2062,7 +2085,8 @@ function viewNew() {
   const tpl = () =>
     draft.tplId && draft.tplId !== '__custom__' ? state.templates.find((x) => x.id === draft.tplId) : null;
   // 积分路径的价目表来自 /api/config；万一还没加载到，就用和后端同款的默认值。
-  const pSpec = () => state.cfg?.points?.instanceSpec ?? { memoryMb: 128, cpus: 0.1, ports: 1, days: 7 };
+  const pSpec = () =>
+    state.cfg?.points?.instanceSpec ?? { memoryMb: 128, cpus: 0.1, ports: 1, days: 7, diskMb: 2048 };
   const pAdd = () =>
     state.cfg?.points?.addons ?? {
       memStepMb: 128,
@@ -2072,26 +2096,34 @@ function viewNew() {
       maxMemoryMb: 16384,
       maxCpus: 8,
       maxPorts: 4,
+      diskStepMb: 2048,
+      diskStepCost: 100,
+      maxDiskMb: 16384,
     };
-  if (!draft.spec) draft.spec = { memoryMb: pSpec().memoryMb, cpus: pSpec().cpus, ports: pSpec().ports };
-  // 打包套餐：命中这些内存+CPU 组合时按直减价收，和后端 POINTS_BUNDLES 同源。
+  if (!draft.spec)
+    draft.spec = {
+      memoryMb: pSpec().memoryMb,
+      cpus: pSpec().cpus,
+      diskMb: pSpec().diskMb,
+      ports: pSpec().ports,
+    };
+  // 打包套餐：管理后台维护，内存 + CPU + 硬盘三样全对才认直减价。
   const pBundle = (s) =>
-    (
-      state.cfg?.points?.bundles ?? [
-        { memoryMb: 2048, cpus: 2, cost: 650 },
-        { memoryMb: 4096, cpus: 4, cost: 1200 },
-        { memoryMb: 8192, cpus: 4, cost: 2100 },
-        { memoryMb: 16384, cpus: 8, cost: 4200 },
-      ]
-    ).find((x) => x.memoryMb === s.memoryMb && Math.round(x.cpus * 10) === Math.round(s.cpus * 10));
-  // 内存 + CPU 部分的原价（不认打包），划掉的那个数字就是它。
+    (state.cfg?.points?.bundles ?? []).find(
+      (x) =>
+        x.memoryMb === s.memoryMb &&
+        Math.round(x.cpus * 10) === Math.round(s.cpus * 10) &&
+        x.diskMb === (s.diskMb ?? pSpec().diskMb)
+    );
+  // 内存 + CPU + 硬盘部分的原价（不认打包），划掉的那个数字就是它。
   const pFull = (s) => {
     const b = pSpec();
     const a = pAdd();
     return (
       (state.cfg?.points?.instanceCost ?? 100) +
       ((s.memoryMb - b.memoryMb) / a.memStepMb) * a.memStepCost +
-      Math.round((s.cpus - b.cpus) * 10) * a.cpuStepCost
+      Math.round((s.cpus - b.cpus) * 10) * a.cpuStepCost +
+      ((s.diskMb ?? b.diskMb) - b.diskMb) / a.diskStepMb * a.diskStepCost
     );
   };
   // 总价 = 内存+CPU（打包价优先） + 端口费，和后端 priceInstanceSpec 同一套算法。
@@ -2104,7 +2136,7 @@ function viewNew() {
   const pointsLine = () => {
     const s = draft.spec;
     const days = pSpec().days;
-    return `${s.memoryMb} MB · ${s.cpus} 核 · ${s.ports} 个端口${
+    return `${s.memoryMb} MB · ${s.cpus} 核 · ${fmtMb(s.diskMb)} 硬盘 · ${s.ports} 个端口${
       days ? ` · 有效 ${days} 天，到期封存` : ''
     }`;
   };
@@ -2161,9 +2193,9 @@ function viewNew() {
     const b = pSpec();
     const a = pAdd();
     const bal = state.user.points ?? 0;
-    // 套餐 = 预搭好的内存 + CPU 组合；命中打包价就按直减价（端口单独选，
-    // 不进卡上的标价）；封顶（env）降下来时超出的档位自动消失。
-    const tiers = [
+    // 固定档位（128MB 起的小机）+ 管理员在后台配的套餐；和套餐撞规格的
+    // 固定档不显示，套餐卡上写的是后台配的名称和打包价。
+    const fixed = [
       { name: '标配版', memoryMb: 128, cpus: 0.1 },
       { name: '中配版', memoryMb: 256, cpus: 0.2 },
       { name: '进阶版', memoryMb: 512, cpus: 0.4 },
@@ -2172,14 +2204,22 @@ function viewNew() {
       { name: '旗舰版', memoryMb: 4096, cpus: 4 },
       { name: '超凡版', memoryMb: 8192, cpus: 4 },
       { name: '至尊版', memoryMb: 16384, cpus: 8 },
-    ].filter(
-      (t) =>
-        t.memoryMb >= b.memoryMb &&
-        t.cpus >= b.cpus &&
-        t.memoryMb <= a.maxMemoryMb &&
-        t.cpus <= a.maxCpus &&
-        (t.memoryMb - b.memoryMb) % a.memStepMb === 0
-    );
+    ];
+    const bund = state.cfg?.points?.bundles ?? [];
+    const inRange = (t) =>
+      t.memoryMb >= b.memoryMb &&
+      t.cpus >= b.cpus &&
+      t.memoryMb <= a.maxMemoryMb &&
+      t.cpus <= a.maxCpus &&
+      (t.memoryMb - b.memoryMb) % a.memStepMb === 0;
+    const tiers = [
+      ...fixed.filter(
+        (t) =>
+          inRange(t) &&
+          !bund.some((x) => x.memoryMb === t.memoryMb && Math.round(x.cpus * 10) === Math.round(t.cpus * 10))
+      ),
+      ...bund.filter(inRange).map((x) => ({ ...x, name: x.name || `${x.memoryMb} MB` })),
+    ];
     // 第一次进来按当前规格反查该亮哪张卡；对不上任何套餐就算自定义。
     if (!draft.planId) {
       const hit = tiers.findIndex(
@@ -2190,7 +2230,7 @@ function viewNew() {
       draft.planId = hit >= 0 ? String(hit) : '__custom__';
     }
     const row = (ico, label, val) => `<div>${icon(ico)}<span>${label}</span><b>${val}</b></div>`;
-    // 卡上价：内存+CPU 的实付价（打包优先）；命中打包时额外返回划线原价。
+    // 卡上价：内存+CPU+硬盘的实付价（打包优先）；命中打包时额外返回划线原价。
     const priceTag = (t) => {
       const bnd = pBundle(t);
       if (!bnd) return `<b>${pFull(t)}</b> 分`;
@@ -2206,10 +2246,11 @@ function viewNew() {
         <div class="plan-rows">
           ${row('cpu', 'CPU', `${t.cpus} 核`)}
           ${row('memory-stick', '内存', `${t.memoryMb} MB`)}
+          ${row('hard-drive', '硬盘', fmtMb(t.diskMb ?? b.diskMb))}
           ${b.days ? row('clock', '有效期', `${b.days} 天，到期封存`) : ''}
         </div>
       </div>`;
-    // 自定义那张卡和套餐排在一起：选中后下面才展开内存 / CPU 两个下拉。
+    // 自定义那张卡和套餐排在一起：选中后下面才展开内存 / CPU / 硬盘三个下拉。
     const customCard = `
       <div class="card plan" data-plan="__custom__">
         <span class="tick">${icon('check', { size: '12px' })}</span>
@@ -2218,6 +2259,7 @@ function viewNew() {
         <div class="plan-rows">
           ${row('cpu', 'CPU', `${b.cpus} - ${a.maxCpus} 核`)}
           ${row('memory-stick', '内存', `${b.memoryMb} - ${a.maxMemoryMb} MB`)}
+          ${row('hard-drive', '硬盘', `${fmtMb(b.diskMb)} - ${fmtMb(a.maxDiskMb)}`)}
           ${b.days ? row('clock', '有效期', `${b.days} 天，到期封存`) : ''}
         </div>
       </div>`;
@@ -2237,6 +2279,13 @@ function viewNew() {
         `<option value="${t / 10}" ${Math.round(draft.spec.cpus * 10) === t ? 'selected' : ''}>${t / 10} 核（${plus(c)}）</option>`
       );
     }
+    const diskOpts = [];
+    for (let mb = b.diskMb; mb <= a.maxDiskMb; mb += a.diskStepMb) {
+      const c = ((mb - b.diskMb) / a.diskStepMb) * a.diskStepCost;
+      diskOpts.push(
+        `<option value="${mb}" ${draft.spec.diskMb === mb ? 'selected' : ''}>${fmtMb(mb)}（${plus(c)}）</option>`
+      );
+    }
     slot.innerHTML = `
       <form id="nv-form">
         <fieldset id="nv-spec" style="border:0;padding:0;margin:0;min-width:0">
@@ -2251,6 +2300,9 @@ function viewNew() {
               <label class="field"><span>${icon('cpu')}CPU</span>
                 <select name="cpu">${cpuOpts.join('')}</select></label>
             </div>
+            <label class="field" style="margin-top:14px"><span>${icon('hard-drive')}硬盘</span>
+              <select name="disk">${diskOpts.join('')}</select>
+              <div class="hint">实例数据卷配额，超出会自动停止（轮询兜底，不是硬限）</div></label>
           </div>
           ${cat('plug', '对外端口')}
           <div class="card nv-card">
@@ -2326,19 +2378,22 @@ function viewNew() {
           // 自定义卡记得住自己的下拉：切回来时按下拉当前值算
           draft.spec.memoryMb = Number(form.mem.value);
           draft.spec.cpus = Number(form.cpu.value);
+          draft.spec.diskMb = Number(form.disk.value);
         } else {
           const t = tiers[Number(draft.planId)];
           draft.spec.memoryMb = t.memoryMb;
           draft.spec.cpus = t.cpus;
+          draft.spec.diskMb = t.diskMb ?? b.diskMb;
         }
         paint();
       };
     });
-    [form.mem, form.cpu].forEach(
+    [form.mem, form.cpu, form.disk].forEach(
       (sel) =>
         (sel.onchange = () => {
           draft.spec.memoryMb = Number(form.mem.value);
           draft.spec.cpus = Number(form.cpu.value);
+          draft.spec.diskMb = Number(form.disk.value);
           paint();
         })
     );
@@ -5681,6 +5736,23 @@ async function viewAdmin() {
         }
       </div>
       <div class="card" style="margin-top:16px">
+        ${cat('sparkles', '品牌设置', { flush: true })}
+        <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <label class="field" style="flex:1;min-width:220px;margin:0"><span>${icon('globe')}面板名称</span>
+            <input id="panel-name" value="${esc(state.cfg?.panelName || 'localhosting')}" maxlength="40" />
+            <div class="hint">显示在登录页、顶栏和浏览器标签上；改完立即生效，不用重启</div></label>
+          <label class="field" style="margin:0"><span>${icon('settings')}主题色</span>
+            <span class="row" style="gap:10px;padding-top:2px">
+              <input type="color" id="panel-color" value="${esc(state.cfg?.panelColor || '#006fee')}"
+                style="width:52px;height:38px;padding:2px;background:var(--default-100);border-radius:var(--radius-sm)" />
+              <span class="sub mono" id="panel-color-hex">${esc((state.cfg?.panelColor || '#006fee').toLowerCase())}</span>
+            </span>
+            <div class="hint">logo 和整套强调色都由它派生</div></label>
+          <button class="primary" id="panel-name-save">${icon('save')}保存</button>
+        </div>
+        <div class="err" id="panel-name-err"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
         ${cat('settings', '对外访问配置', { flush: true })}
         <div class="table-wrap"><table>
           <tr><td>${icon('globe')}PUBLIC_HOST</td><td class="mono">${esc(
@@ -5834,6 +5906,68 @@ async function viewAdmin() {
         ${table(invites.filter((i) => i.type === 'instance'), '还没有资源券')}
         ${cat('user-plus', '注册邀请码')}
         ${table(invites.filter((i) => i.type !== 'instance' && i.type !== 'points'), '还没有注册邀请码')}`;
+    } else if (tab === 'bundles') {
+      const { bundles } = await api('/admin/bundles');
+      const fmt = (mb) => (mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`);
+      body = `
+        <form class="card" id="bundle-form">
+          ${cat('layers', '积分套餐', { flush: true })}
+          <div class="hint" style="margin-bottom:12px">套餐是「内存 + CPU + 硬盘」的打包价：用户在支付页选到这些规格时按打包价付（比逐档加配便宜），端口费另算。改完立即生效，新建实例按新价结算。</div>
+          <div class="two">
+            <label class="field"><span>名称</span>
+              <input name="name" placeholder="如：2c2g 旗舰" /></label>
+            <label class="field"><span>${icon('sparkles')}价格（积分）</span>
+              <input name="cost" type="number" min="0" step="1" required /></label>
+          </div>
+          <div class="two">
+            <label class="field"><span>${icon('memory-stick')}内存 (MB)</span>
+              <input name="memoryMb" type="number" min="64" step="64" required /></label>
+            <label class="field"><span>${icon('cpu')}CPU 核数</span>
+              <input name="cpus" type="number" min="0.1" step="0.1" required /></label>
+          </div>
+          <div class="two">
+            <label class="field"><span>${icon('hard-drive')}硬盘 (MB)</span>
+              <input name="diskMb" type="number" min="128" step="128" value="2048" required />
+              <div class="hint">实例数据卷配额，超量自动停止（轮询兜底，非硬限）；老实例回退全局 DISK_QUOTA_MB</div></label>
+            <label class="field"><span>状态</span>
+              <label class="row" style="gap:6px;padding-top:9px"><input type="checkbox" name="enabled" checked style="width:auto" /> 上架（支付页可见）</label></label>
+          </div>
+          <input type="hidden" name="id" />
+          <div class="row" style="gap:8px">
+            <button class="primary" type="submit">${icon('plus')}添加套餐</button>
+            <button type="button" class="ghost" id="bundle-cancel" hidden>${icon('x')}取消编辑</button>
+          </div>
+        </form>
+        ${cat('layers', '套餐列表', { flush: true })}
+        <div class="card table-wrap"><table class="cards">
+          <tr><th>名称</th><th>规格</th><th>硬盘</th><th>价格</th><th>状态</th><th></th></tr>
+          ${
+            bundles.length
+              ? bundles
+                  .map(
+                    (b) => `<tr>
+              <td><b>${esc(b.name || '未命名')}</b></td>
+              <td class="sub">${b.memoryMb} MB · ${b.cpus} 核</td>
+              <td class="sub">${fmt(b.diskMb)}</td>
+              <td><b>${b.cost}</b> 分</td>
+              <td>${b.enabled ? '<span class="ok">上架中</span>' : '<span class="sub">已下架</span>'}</td>
+              <td class="row">
+                <button class="small" data-editb="${b.id}" data-name="${esc(b.name)}" data-memory="${b.memoryMb}"
+                  data-cpus="${b.cpus}" data-disk="${b.diskMb}" data-cost="${b.cost}"
+                  data-enabled="${b.enabled ? 1 : 0}">${icon('pencil')}编辑</button>
+                <button class="small" data-toggleb="${b.id}" data-enabled="${b.enabled ? 1 : 0}">${icon(
+                      'power'
+                    )}${b.enabled ? '下架' : '上架'}</button>
+                <button class="small danger" data-delb="${b.id}" data-label="${esc(b.name || `${b.memoryMb}MB/${b.cpus}核`)}">${icon(
+                      'trash-2'
+                    )}删除</button>
+              </td>
+            </tr>`
+                  )
+                  .join('')
+              : '<tr><td colspan="6" class="sub">还没有套餐 —— 用上面的表单添加；首次启动时的默认档位来自 .env 的 POINTS_BUNDLES</td></tr>'
+          }
+        </table></div>`;
     } else if (tab === 'instances') {
       const { instances } = await api('/admin/instances');
       body = `<div class="card table-wrap"><table class="cards">
@@ -5971,7 +6105,7 @@ async function viewAdmin() {
     }
 
     // Built after the body so the pending badge reflects what was just loaded.
-    const nav = ['pending', 'overview', 'users', 'invites', 'instances', 'sites', 'announcements', 'audit']
+    const nav = ['pending', 'overview', 'users', 'invites', 'bundles', 'instances', 'sites', 'announcements', 'audit']
       .filter((t) => t !== 'sites' || state.cfg?.sites?.enabled)
       .map((t) => {
         const { label, ico } = {
@@ -5979,6 +6113,7 @@ async function viewAdmin() {
           overview: { label: '总览', ico: 'gauge' },
           users: { label: '用户', ico: 'users' },
           invites: { label: '邀请码', ico: 'ticket' },
+          bundles: { label: '套餐', ico: 'layers' },
           instances: { label: '全部实例', ico: 'boxes' },
           sites: { label: '静态站点', ico: 'globe' },
           announcements: { label: '公告', ico: 'info' },
@@ -6136,6 +6271,111 @@ function wireAdmin(refresh) {
         toast(err.message, 'err');
       }
     };
+  }
+
+  // 面板名称 / 主题色：改完刷新配置并重绘，顶栏 / 登录页 / 标签标题跟着变；
+  // 主题色即时应用到当前页面（CSS 变量 + favicon）。
+  const panelNameSave = document.getElementById('panel-name-save');
+  if (panelNameSave) {
+    const input = document.getElementById('panel-name');
+    const colorInput = document.getElementById('panel-color');
+    const colorHex = document.getElementById('panel-color-hex');
+    const errEl = document.getElementById('panel-name-err');
+    colorInput.addEventListener('input', () => {
+      colorHex.textContent = colorInput.value.toLowerCase();
+      applyTheme(colorInput.value);
+    });
+    panelNameSave.onclick = async () => {
+      errEl.textContent = '';
+      try {
+        const { panelName, panelColor } = await api('/admin/settings', {
+          method: 'PATCH',
+          body: { panelName: input.value, panelColor: colorInput.value },
+        });
+        state.cfg = { ...(state.cfg || {}), panelName, panelColor };
+        document.title = `${panelName} · 容器面板`;
+        applyTheme(panelColor);
+        toast('品牌设置已保存', 'ok');
+        refresh();
+      } catch (err) {
+        errEl.textContent = err.message;
+        // 预览归位：保存失败时颜色/名称恢复到当前已保存的值
+        applyTheme(state.cfg?.panelColor);
+        colorHex.textContent = (state.cfg?.panelColor || '#006fee').toLowerCase();
+        colorInput.value = state.cfg?.panelColor || '#006fee';
+        input.value = state.cfg?.panelName || 'localhosting';
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') panelNameSave.click();
+    });
+  }
+
+  // 套餐管理：表单添加/编辑，列表里上架下架、删除。改完顺手刷新一次配置，
+  // 支付页的套餐卡下次打开就是新的。
+  const bf = document.getElementById('bundle-form');
+  if (bf) {
+    const refreshCfg = async () => {
+      try { state.cfg = await api('/config'); } catch {}
+    };
+    bf.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(bf));
+      fd.enabled = bf.enabled.checked;
+      const id = fd.id;
+      delete fd.id;
+      try {
+        if (id) await api(`/admin/bundles/${id}`, { method: 'PATCH', body: fd });
+        else await api('/admin/bundles', { method: 'POST', body: fd });
+        await refreshCfg();
+        toast('套餐已保存', 'ok');
+        refresh();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    app.querySelectorAll('[data-editb]').forEach((btn) => {
+      btn.onclick = () => {
+        const d = btn.dataset;
+        bf.id.value = d.editb;
+        bf.name.value = d.name;
+        bf.cost.value = d.cost;
+        bf.memoryMb.value = d.memory;
+        bf.cpus.value = d.cpus;
+        bf.diskMb.value = d.disk;
+        bf.enabled.checked = d.enabled === '1';
+        bf.querySelector('button[type=submit]').innerHTML = `${icon('save')}保存修改`;
+        document.getElementById('bundle-cancel').hidden = false;
+        bf.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    });
+    document.getElementById('bundle-cancel').onclick = () => refresh();
+    app.querySelectorAll('[data-toggleb]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = Number(btn.dataset.toggleb);
+        const enabled = btn.dataset.enabled === '1';
+        try {
+          await api(`/admin/bundles/${id}`, { method: 'PATCH', body: { enabled: !enabled } });
+          await refreshCfg();
+          refresh();
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
+    app.querySelectorAll('[data-delb]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm(`确定删除套餐「${btn.dataset.label}」？已创建的实例不受影响，之后无法再按打包价购买这个规格。`)) return;
+        try {
+          await api(`/admin/bundles/${btn.dataset.delb}`, { method: 'DELETE' });
+          await refreshCfg();
+          toast('已删除', 'ok');
+          refresh();
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
   }
 
   app.querySelectorAll('[data-delinv]').forEach(
@@ -6392,6 +6632,9 @@ async function boot() {
     const [cfg, tpl] = await Promise.all([api('/config'), api('/templates')]);
     state.cfg = cfg;
     state.templates = tpl.templates;
+    // 面板名称是管理后台可改的，浏览器标签跟着它走。
+    document.title = `${cfg.panelName || 'localhosting'} · 容器面板`;
+    applyTheme(cfg.panelColor);
     const me = await syncMe();
     // syncMe 已经把停用页画出来了，这里不能再往下走去渲染面板。
     if (me.disabled) return;

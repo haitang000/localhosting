@@ -24,11 +24,12 @@ export class HttpError extends Error {
 const bad = (msg) => new HttpError(400, msg);
 
 export function usage(userId) {
-  const rows = db.prepare('SELECT memory_mb, cpus, ports_json FROM instances WHERE user_id = ?').all(userId);
+  const rows = db.prepare('SELECT memory_mb, cpus, disk_mb, ports_json FROM instances WHERE user_id = ?').all(userId);
   return {
     instances: rows.length,
     memoryMb: rows.reduce((a, r) => a + r.memory_mb, 0),
     cpus: Number(rows.reduce((a, r) => a + r.cpus, 0).toFixed(2)),
+    diskMb: rows.reduce((a, r) => a + (r.disk_mb ?? 0), 0),
     ports: rows.reduce((a, r) => a + JSON.parse(r.ports_json).length, 0),
   };
 }
@@ -155,8 +156,12 @@ export async function createInstance(user, body) {
   const memoryMb = invite ? invite.memory_mb : plan.memoryMb;
   const cpus = invite ? invite.cpus : plan.cpus;
   const maxPorts = invite ? invite.ports : plan.ports;
+  // 硬盘配额：积分路径跟着规格走（套餐/自定义都带 diskMb）；
+  // 券上没有磁盘字段，回退到全局 DISK_QUOTA_MB。
+  const diskMb = invite ? config.diskQuotaMb : plan.diskMb;
   if (!Number.isFinite(memoryMb) || memoryMb < 64) throw bad('这张资源券的内存额度无效，请联系管理员');
   if (!Number.isFinite(cpus) || cpus < 0.1) throw bad('这张资源券的 CPU 额度无效，请联系管理员');
+  if (!Number.isInteger(diskMb) || diskMb < 128) throw bad('磁盘配额无效，请联系管理员');
   if (portSpecs.length > maxPorts) {
     throw new HttpError(
       403,
@@ -227,9 +232,9 @@ export async function createInstance(user, body) {
   // foreign key onto instances(id).
   db.prepare(
     `INSERT INTO instances
-      (id, user_id, name, image, template_id, memory_mb, cpus, env_json, ports_json, volume_name,
+      (id, user_id, name, image, template_id, memory_mb, cpus, disk_mb, env_json, ports_json, volume_name,
        invite_code, paid_points, cmd_json, volume_paths_json, note, sleep_enabled, idle_minutes, life_days, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
   ).run(
     id,
     user.id,
@@ -238,6 +243,7 @@ export async function createInstance(user, body) {
     template?.id ?? null,
     memoryMb,
     cpus,
+    diskMb,
     JSON.stringify(env),
     volumeName,
     invite?.code ?? null,
@@ -385,6 +391,7 @@ export async function approveInstance(row, admin, { addresses = {}, note } = {})
     ports,
     memoryMb: row.memory_mb,
     cpus: row.cpus,
+    diskMb: row.disk_mb ?? config.diskQuotaMb,
     volumeName: row.volume_name,
     volumePaths: row.volume_paths_json ? JSON.parse(row.volume_paths_json) : [],
   }).catch((err) => {
@@ -446,6 +453,7 @@ async function provision(spec) {
     cmd: spec.cmd,
     memoryMb: spec.memoryMb,
     cpus: spec.cpus,
+    diskMb: spec.diskMb,
     portBindings: spec.ports.map((p) => ({
       containerPort: p.container,
       protocol: p.protocol,

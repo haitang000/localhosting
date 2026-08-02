@@ -102,7 +102,12 @@ export async function createContainer(spec) {
       SecurityOpt: ['no-new-privileges:true'],
       Privileged: false,
       LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '3' } },
-      StorageOpt: config.diskQuota ? { size: config.diskQuota } : undefined,
+      // 优先用实例自己的磁盘配额（积分套餐/自定义带 diskMb）；券和老实例回退全局 DISK_QUOTA
+      StorageOpt: spec.diskMb
+        ? { size: `${spec.diskMb}m` }
+        : config.diskQuota
+          ? { size: config.diskQuota }
+          : undefined,
     },
   });
   return container;

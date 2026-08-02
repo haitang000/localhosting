@@ -42,12 +42,14 @@
      texture rather than as content */
   --dot: rgba(17, 17, 17, 0.11);
 
-  /* ---- brand + status ---- */
+  /* ---- brand + status ----
+     --primary 是主题色（管理后台「品牌设置」可改，行内覆盖在 html 上），
+     strong/flat 由它派生：JS 只动 --primary，深浅两套配色自动跟着走。 */
   --primary: #006fee;
-  --primary-strong: #005bc4;
-  --primary-flat: rgba(0, 111, 238, 0.16);
+  --primary-strong: color-mix(in srgb, var(--primary) 78%, black);
+  --primary-flat: color-mix(in srgb, var(--primary) 16%, transparent);
   --primary-foreground: #ffffff;
-  --focus: #006fee;
+  --focus: var(--primary);
 
   --success: #0e793c;
   --success-flat: rgba(23, 201, 100, 0.18);
@@ -104,8 +106,8 @@
     --dot: rgba(255, 255, 255, 0.1);
 
     --primary: #006fee;
-    --primary-strong: #338ef7;
-    --primary-flat: rgba(0, 111, 238, 0.24);
+    --primary-strong: color-mix(in srgb, var(--primary) 82%, white);
+    --primary-flat: color-mix(in srgb, var(--primary) 24%, transparent);
 
     --success: #17c964;
     --success-flat: rgba(23, 201, 100, 0.16);
