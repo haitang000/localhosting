@@ -3065,6 +3065,18 @@ dialog.ob:not([open])::backdrop {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   vertical-align: middle;
 }
+/* 售罄的套餐卡：标灰、点不动 */
+.plan.sold {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.plan.sold:hover {
+  box-shadow: none;
+}
+.plan-tag.sold {
+  color: var(--default-500);
+  background: var(--default-100);
+}
 .plan-rows {
   display: grid;
   gap: 7px;

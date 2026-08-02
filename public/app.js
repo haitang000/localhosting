@@ -2107,14 +2107,20 @@ function viewNew() {
       diskMb: pSpec().diskMb,
       ports: pSpec().ports,
     };
-  // 打包套餐：管理后台维护，内存 + CPU + 硬盘三样全对才认直减价。
+  // 打包套餐：管理后台维护，内存 + CPU + 硬盘三样全对才认直减价；售罄不参与。
   const pBundle = (s) =>
     (state.cfg?.points?.bundles ?? []).find(
       (x) =>
         x.memoryMb === s.memoryMb &&
         Math.round(x.cpus * 10) === Math.round(s.cpus * 10) &&
-        x.diskMb === (s.diskMb ?? pSpec().diskMb)
+        x.diskMb === (s.diskMb ?? pSpec().diskMb) &&
+        x.stock !== 0
     );
+  // 实例时长：命中套餐时用套餐自带的时长（NULL = 跟随全局），否则用全局基础时长。
+  const specDays = () => {
+    const bnd = pBundle(draft.spec);
+    return bnd ? (bnd.days == null ? pSpec().days : bnd.days) : pSpec().days;
+  };
   // 内存 + CPU + 硬盘部分的原价（不认打包），划掉的那个数字就是它。
   const pFull = (s) => {
     const b = pSpec();
@@ -2135,7 +2141,7 @@ function viewNew() {
   };
   const pointsLine = () => {
     const s = draft.spec;
-    const days = pSpec().days;
+    const days = specDays();
     return `${s.memoryMb} MB · ${s.cpus} 核 · ${fmtMb(s.diskMb)} 硬盘 · ${s.ports} 个端口${
       days ? ` · 有效 ${days} 天，到期封存` : ''
     }`;
@@ -2213,19 +2219,23 @@ function viewNew() {
       t.cpus <= a.maxCpus &&
       (t.memoryMb - b.memoryMb) % a.memStepMb === 0;
     const tiers = [
+      // 固定档位只避开「还有库存」的套餐；售罄的套餐卡照常显示，但标灰点不了
       ...fixed.filter(
         (t) =>
           inRange(t) &&
-          !bund.some((x) => x.memoryMb === t.memoryMb && Math.round(x.cpus * 10) === Math.round(t.cpus * 10))
+          !bund.some(
+            (x) => x.stock !== 0 && x.memoryMb === t.memoryMb && Math.round(x.cpus * 10) === Math.round(t.cpus * 10)
+          )
       ),
-      ...bund.filter(inRange).map((x) => ({ ...x, name: x.name || `${x.memoryMb} MB` })),
+      ...bund.filter(inRange).map((x) => ({ ...x, name: x.name || `${x.memoryMb} MB`, bundle: true })),
     ];
-    // 第一次进来按当前规格反查该亮哪张卡；对不上任何套餐就算自定义。
+    // 第一次进来按当前规格反查该亮哪张卡；对不上任何套餐（或套餐已售罄）就算自定义。
     if (!draft.planId) {
       const hit = tiers.findIndex(
         (t) =>
           t.memoryMb === draft.spec.memoryMb &&
-          Math.round(t.cpus * 10) === Math.round(draft.spec.cpus * 10)
+          Math.round(t.cpus * 10) === Math.round(draft.spec.cpus * 10) &&
+          t.stock !== 0
       );
       draft.planId = hit >= 0 ? String(hit) : '__custom__';
     }
@@ -2236,18 +2246,27 @@ function viewNew() {
       if (!bnd) return `<b>${pFull(t)}</b> 分`;
       return `<s>${pFull(t)}</s> <b>${bnd.cost}</b> 分`;
     };
+    // 套餐自带的时长优先；NULL = 跟随全局基础时长
+    const daysText = (t) => {
+      const dd = t.bundle ? (t.days == null ? b.days : t.days) : b.days;
+      return dd ? `${dd} 天，到期封存` : '';
+    };
+    const stockText = (t) => (t.stock < 0 ? '不限量' : t.stock > 0 ? `剩余 ${t.stock} 份` : '已售罄');
     const planCard = (t, i) => `
-      <div class="card plan" data-plan="${i}">
+      <div class="card plan ${t.stock === 0 ? 'sold' : ''}" data-plan="${i}"${
+        t.stock === 0 ? ' aria-disabled="true"' : ''
+      }>
         <span class="tick">${icon('check', { size: '12px' })}</span>
         <div class="plan-head"><span class="plan-name">${t.name}${
           pBundle(t) ? '<span class="plan-tag">直减</span>' : ''
-        }</span>
-          <span class="plan-price">${priceTag(t)}</span></div>
+        }${t.stock === 0 ? '<span class="plan-tag sold">已售罄</span>' : ''}</span>
+          <span class="plan-price">${t.stock === 0 ? '—' : priceTag(t)}</span></div>
         <div class="plan-rows">
           ${row('cpu', 'CPU', `${t.cpus} 核`)}
           ${row('memory-stick', '内存', `${t.memoryMb} MB`)}
           ${row('hard-drive', '硬盘', fmtMb(t.diskMb ?? b.diskMb))}
-          ${b.days ? row('clock', '有效期', `${b.days} 天，到期封存`) : ''}
+          ${daysText(t) ? row('clock', '有效期', daysText(t)) : ''}
+          ${t.bundle ? row('layers', '余量', stockText(t)) : ''}
         </div>
       </div>`;
     // 自定义那张卡和套餐排在一起：选中后下面才展开内存 / CPU / 硬盘三个下拉。
@@ -2381,6 +2400,7 @@ function viewNew() {
           draft.spec.diskMb = Number(form.disk.value);
         } else {
           const t = tiers[Number(draft.planId)];
+          if (t && t.stock === 0) return; // 售罄的卡点不动
           draft.spec.memoryMb = t.memoryMb;
           draft.spec.cpus = t.cpus;
           draft.spec.diskMb = t.diskMb ?? b.diskMb;
@@ -5686,8 +5706,12 @@ async function viewAdmin() {
   // How many audit rows the 操作日志 tab is currently showing; null = the default
   // for this screen size. Lives out here so 再看 40 条 survives the repaint.
   let auditShown = null;
+  // 后台标签页切换也走异步 paint：连点两个标签时，慢的那个晚到会盖住新的。
+  // 每个 paint 领一个序号，画之前对不上号就放弃。
+  let paintSeq = 0;
 
   const paint = async () => {
+    const seq = ++paintSeq;
     let body = loader();
     await syncMe();
     if (tab === 'pending') {
@@ -5929,6 +5953,16 @@ async function viewAdmin() {
             <label class="field"><span>${icon('hard-drive')}硬盘 (MB)</span>
               <input name="diskMb" type="number" min="128" step="128" value="2048" required />
               <div class="hint">实例数据卷配额，超量自动停止（轮询兜底，非硬限）；老实例回退全局 DISK_QUOTA_MB</div></label>
+            <label class="field"><span>${icon('hourglass')}实例时长（天）</span>
+              <input name="days" type="number" min="0" max="3650" placeholder="留空 = 跟随全局" />
+              <div class="hint">用它建出来的实例能活多久：0 = 永久，留空 = 用全局基础时长（${
+                state.cfg?.points?.instanceSpec?.days ?? 7
+              } 天）</div></label>
+          </div>
+          <div class="two">
+            <label class="field"><span>${icon('layers')}余量（剩余可购份数）</span>
+              <input name="stock" type="number" min="0" max="1000000" placeholder="留空 = 不限量" />
+              <div class="hint">每建一个实例扣 1 份，扣完自动售罄；驳回 / 创建失败 / 删除实例时退 1 份</div></label>
             <label class="field"><span>状态</span>
               <label class="row" style="gap:6px;padding-top:9px"><input type="checkbox" name="enabled" checked style="width:auto" /> 上架（支付页可见）</label></label>
           </div>
@@ -5940,7 +5974,7 @@ async function viewAdmin() {
         </form>
         ${cat('layers', '套餐列表', { flush: true })}
         <div class="card table-wrap"><table class="cards">
-          <tr><th>名称</th><th>规格</th><th>硬盘</th><th>价格</th><th>状态</th><th></th></tr>
+          <tr><th>名称</th><th>规格</th><th>硬盘</th><th>时长</th><th>余量</th><th>价格</th><th>状态</th><th></th></tr>
           ${
             bundles.length
               ? bundles
@@ -5949,11 +5983,14 @@ async function viewAdmin() {
               <td><b>${esc(b.name || '未命名')}</b></td>
               <td class="sub">${b.memoryMb} MB · ${b.cpus} 核</td>
               <td class="sub">${fmt(b.diskMb)}</td>
+              <td class="sub">${b.days == null ? '跟随全局' : b.days === 0 ? '永久' : `${b.days} 天`}</td>
+              <td class="sub">${b.stock < 0 ? '不限量' : b.stock === 0 ? '<span class="badge error">售罄</span>' : `剩 ${b.stock} 份`}</td>
               <td><b>${b.cost}</b> 分</td>
               <td>${b.enabled ? '<span class="ok">上架中</span>' : '<span class="sub">已下架</span>'}</td>
               <td class="row">
                 <button class="small" data-editb="${b.id}" data-name="${esc(b.name)}" data-memory="${b.memoryMb}"
                   data-cpus="${b.cpus}" data-disk="${b.diskMb}" data-cost="${b.cost}"
+                  data-days="${b.days == null ? '' : b.days}" data-stock="${b.stock < 0 ? '' : b.stock}"
                   data-enabled="${b.enabled ? 1 : 0}">${icon('pencil')}编辑</button>
                 <button class="small" data-toggleb="${b.id}" data-enabled="${b.enabled ? 1 : 0}">${icon(
                       'power'
@@ -6126,12 +6163,15 @@ async function viewAdmin() {
       })
       .join('');
 
+    if (seq !== paintSeq) return; // 等待接口期间又被更新的标签页取代，放弃本次绘制
+
     shell(
       'admin',
       `<div class="page-title"><span class="page-ico">${icon('shield')}</span><h1>管理后台</h1></div>
        <div class="tabbar">${nav}</div>${body}`
     );
 
+    revealActive('.tabbar', 'button.on');
     app.querySelectorAll('[data-atab]').forEach(
       (b) =>
         (b.onclick = () => {
@@ -6141,7 +6181,6 @@ async function viewAdmin() {
           paint();
         })
     );
-    revealActive('.tabbar', 'button.on');
     const auditMore = document.getElementById('audit-more');
     if (auditMore) {
       auditMore.onclick = () => {
@@ -6343,6 +6382,8 @@ function wireAdmin(refresh) {
         bf.memoryMb.value = d.memory;
         bf.cpus.value = d.cpus;
         bf.diskMb.value = d.disk;
+        bf.days.value = d.days;
+        bf.stock.value = d.stock;
         bf.enabled.checked = d.enabled === '1';
         bf.querySelector('button[type=submit]').innerHTML = `${icon('save')}保存修改`;
         document.getElementById('bundle-cancel').hidden = false;
@@ -6597,32 +6638,48 @@ function view404() {
 }
 
 /* ---------------- router ---------------- */
-async function route() {
-  clearTimers();
-  // 停用页优先于任何路由：hash 是可以随手改的，别让它绕回面板。
-  if (state.disabled) return renderDisabled(state.disabled);
-  if (!state.user) return renderAuth();
-  const parts = location.hash.replace(/^#\/?/, '').split('/');
-  const section = parts[0] || 'instances';
-  const arg = parts[1];
+/* 快速连点导航时，上一个页面可能还在等接口，它晚到的渲染会盖住新页面，
+   并带着自己刚注册的轮询定时器赖着不走 —— 这就是「切太快卡在上一页」。
+   处理办法是把路由渲染串成一条链：
+     1. 新路由等上一个路由彻底画完才开始（晚到的渲染永远排在新页面之前）；
+     2. 等待期间如果又来了更新的路由，这个任务直接作废（序号对不上就跳过）；
+     3. 渲染前再清一次定时器，把上一个页面刚注册的轮询一并收掉。
+   最终画面永远是最后一次点击对应的页面。 */
+let renderChain = Promise.resolve();
+let routeSeq = 0;
 
-  switch (section) {
-    case 'new':
-      return viewNew();
-    case 'sites':
-      return state.cfg?.sites?.enabled ? viewSites() : viewInstances();
-    case 'i':
-      return viewInstance(arg);
-    case 'admin':
-      return state.user.role === 'admin' ? viewAdmin() : viewInstances();
-    case 'account':
-      return viewAccount();
-    case 'instances':
-      return viewInstances();
-    default:
-      // 打错的 hash 不该悄悄变成实例列表 —— 说清楚这一页不存在。
-      return view404();
-  }
+function route() {
+  const seq = ++routeSeq;
+  const task = renderChain.then(async () => {
+    if (seq !== routeSeq) return; // 等待期间被更新的路由取代，放弃本次渲染
+    clearTimers();
+    // 停用页优先于任何路由：hash 是可以随手改的，别让它绕回面板。
+    if (state.disabled) return renderDisabled(state.disabled);
+    if (!state.user) return renderAuth();
+    const parts = location.hash.replace(/^#\/?/, '').split('/');
+    const section = parts[0] || 'instances';
+    const arg = parts[1];
+
+    switch (section) {
+      case 'new':
+        return viewNew();
+      case 'sites':
+        return state.cfg?.sites?.enabled ? viewSites() : viewInstances();
+      case 'i':
+        return viewInstance(arg);
+      case 'admin':
+        return state.user.role === 'admin' ? viewAdmin() : viewInstances();
+      case 'account':
+        return viewAccount();
+      case 'instances':
+        return viewInstances();
+      default:
+        // 打错的 hash 不该悄悄变成实例列表 —— 说清楚这一页不存在。
+        return view404();
+    }
+  });
+  renderChain = task.catch(() => {});
+  return task;
 }
 
 async function boot() {

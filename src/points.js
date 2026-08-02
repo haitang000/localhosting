@@ -66,16 +66,31 @@ export function priceInstanceSpec(spec = {}) {
 
   const cost =
     memCpuCost(memoryMb, ticks, diskMb) + (ports - basePorts) * config.pointsPortCost;
-  return { memoryMb, cpus: ticks / 10, diskMb, ports, cost };
+
+  // 命中的套餐（若有）跟着规格走：时长和库存由套餐决定，建实例时要用。
+  const bundle = findBundle(memoryMb, ticks, diskMb);
+  if (bundle && bundle.stock === 0) {
+    throw new Error(`套餐「${bundle.name || `${bundle.memoryMb}MB`}」已售罄，请选择其他套餐`);
+  }
+  return {
+    memoryMb,
+    cpus: ticks / 10,
+    diskMb,
+    ports,
+    cost,
+    bundleId: bundle?.id ?? null,
+    days: bundle?.days ?? null, // null = 跟随全局 POINTS_INSTANCE_DAYS
+  };
 }
 
 /**
  * 内存 + CPU + 硬盘部分的价：先看是不是打包套餐（管理后台维护，三样全对
- * 才认），对不上才按价目表逐档累加。端口费不在这里。
+ * 才认），对不上才按价目表逐档累加。端口费不在这里。售罄的套餐不参与
+ * 定价（调用方会另行拒绝）。
  */
 function memCpuCost(memoryMb, ticks, diskMb) {
   const bundle = findBundle(memoryMb, ticks, diskMb);
-  if (bundle) return bundle.cost;
+  if (bundle && bundle.stock !== 0) return bundle.cost;
   return (
     config.instancePointsCost +
     ((memoryMb - config.pointsInstanceMemoryMb) / config.pointsMemStepMb) * config.pointsMemStepCost +

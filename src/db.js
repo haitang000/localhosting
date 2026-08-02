@@ -147,6 +147,8 @@ CREATE TABLE IF NOT EXISTS announcements (
 
 -- 积分套餐（管理后台「套餐」页维护）：内存 + CPU + 硬盘打包价。
 -- 首次启动用 POINTS_BUNDLES 播种，之后以这里的记录为准，改环境变量不再生效。
+-- days：用它建出来的实例能活几天（NULL = 跟随全局 POINTS_INSTANCE_DAYS，0 = 永久）；
+-- stock：剩余可购份数（-1 = 不限量），每建一个实例扣 1，驳回/失败/删除退 1。
 CREATE TABLE IF NOT EXISTS bundles (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL DEFAULT '',
@@ -154,6 +156,8 @@ CREATE TABLE IF NOT EXISTS bundles (
   cpus       REAL    NOT NULL,
   disk_mb    INTEGER NOT NULL DEFAULT 2048,
   cost       INTEGER NOT NULL,
+  days       INTEGER,
+  stock      INTEGER NOT NULL DEFAULT -1,
   enabled    INTEGER NOT NULL DEFAULT 1,
   sort       INTEGER NOT NULL DEFAULT 0,
   created_at TEXT    NOT NULL,
@@ -222,6 +226,11 @@ addColumn('instances', 'paid_points', 'INTEGER');
 addColumn('users', 'last_checkin_date', 'TEXT');
 // 积分实例的数据卷配额（MB）；老实例没有这列，回退到全局 DISK_QUOTA_MB。
 addColumn('instances', 'disk_mb', 'INTEGER');
+// 花积分开、且命中了打包套餐的实例记下套餐 id：删除/驳回/创建失败时把套餐余量退回去。
+addColumn('instances', 'bundle_id', 'INTEGER');
+// 套餐字段：实例时长（NULL=跟随全局，0=永久）、剩余份数（-1=不限量）
+addColumn('bundles', 'days', 'INTEGER');
+addColumn('bundles', 'stock', 'INTEGER NOT NULL DEFAULT -1');
 
 export const now = () => new Date().toISOString();
 

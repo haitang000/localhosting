@@ -15,7 +15,7 @@ export function seedBundles() {
   const seeds = (config.pointsBundles ?? []).filter((b) => Number(b.cost) > 0);
   if (!seeds.length) return;
   const ins = db.prepare(
-    'INSERT INTO bundles (name, memory_mb, cpus, disk_mb, cost, enabled, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)'
+    'INSERT INTO bundles (name, memory_mb, cpus, disk_mb, cost, days, stock, enabled, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)'
   );
   seeds.forEach((b, i) =>
     ins.run(
@@ -24,6 +24,8 @@ export function seedBundles() {
       Number(b.cpus),
       Math.round(Number(b.diskMb ?? config.pointsInstanceDiskMb)),
       Math.round(Number(b.cost)),
+      b.days === undefined || b.days === null || b.days === '' ? null : Math.round(Number(b.days)),
+      b.stock === undefined || b.stock === null || b.stock === '' ? -1 : Math.round(Number(b.stock)),
       i,
       now(),
       now()
@@ -39,6 +41,8 @@ function shape(row) {
     cpus: Number(row.cpus),
     diskMb: row.disk_mb,
     cost: row.cost,
+    days: row.days ?? null,
+    stock: row.stock ?? -1,
     enabled: !!row.enabled,
   };
 }
@@ -56,6 +60,23 @@ export function findBundle(memoryMb, ticks, diskMb) {
   return listBundles({ enabledOnly: true }).find(
     (b) => b.memoryMb === memoryMb && Math.round(b.cpus * 10) === ticks && b.diskMb === diskMb
   );
+}
+
+/** 库存还有没有：-1 不限量，>0 有货，0 售罄。 */
+export const stockLeft = (b) => b.stock < 0;
+
+/** 扣一份库存（原子操作）；售罄、无限量（-1）或并发下被抢完返回 false。 */
+export function consumeBundleStock(id) {
+  const res = db
+    .prepare('UPDATE bundles SET stock = stock - 1, updated_at = ? WHERE id = ? AND stock > 0')
+    .run(now(), id);
+  return res.changes === 1;
+}
+
+/** 退一份库存：仅限有限库存（-1 不限量不用加）。 */
+export function refundBundleStock(id) {
+  if (!id) return;
+  db.prepare('UPDATE bundles SET stock = stock + 1, updated_at = ? WHERE id = ? AND stock >= 0').run(now(), id);
 }
 
 export function getBundle(id) {
@@ -81,18 +102,34 @@ export function cleanBundle(f = {}) {
   if (!Number.isInteger(cost) || cost < 0 || cost > 10000000) {
     throw new Error('价格需为 0 - 10000000 的整数（积分）');
   }
+  // 时长：留空 = 跟随全局 POINTS_INSTANCE_DAYS；0 = 永久；1-3650 = 天数
+  let days = null;
+  if (f.days !== undefined && f.days !== null && String(f.days).trim() !== '') {
+    days = Math.round(Number(f.days));
+    if (!Number.isInteger(days) || days < 0 || days > 3650) {
+      throw new Error('实例时长需为 0 - 3650 天（0 = 永久，留空 = 跟随全局）');
+    }
+  }
+  // 余量：留空 = 不限量（-1）；0 = 售罄；>0 = 剩余份数
+  let stock = -1;
+  if (f.stock !== undefined && f.stock !== null && String(f.stock).trim() !== '') {
+    stock = Math.round(Number(f.stock));
+    if (!Number.isInteger(stock) || stock < -1 || stock > 1000000) {
+      throw new Error('余量需为 0 - 1000000 的整数（留空 = 不限量）');
+    }
+  }
   const dup = db
     .prepare('SELECT 1 FROM bundles WHERE memory_mb = ? AND cpus = ? AND disk_mb = ? AND id != ?')
     .get(memoryMb, ticks / 10, diskMb, Number(f.id) || 0);
   if (dup) throw new Error('同规格（内存 + CPU + 硬盘）的套餐已经存在');
-  return { name: String(f.name ?? '').slice(0, 40), memoryMb, cpus: ticks / 10, diskMb, cost };
+  return { name: String(f.name ?? '').slice(0, 40), memoryMb, cpus: ticks / 10, diskMb, cost, days, stock };
 }
 
 export function createBundle(f) {
   const b = cleanBundle(f);
   const info = db
-    .prepare('INSERT INTO bundles (name, memory_mb, cpus, disk_mb, cost, enabled, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(b.name, b.memoryMb, b.cpus, b.diskMb, b.cost, f.enabled === false ? 0 : 1, 999, now(), now());
+    .prepare('INSERT INTO bundles (name, memory_mb, cpus, disk_mb, cost, days, stock, enabled, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(b.name, b.memoryMb, b.cpus, b.diskMb, b.cost, b.days, b.stock, f.enabled === false ? 0 : 1, 999, now(), now());
   return getBundle(Number(info.lastInsertRowid));
 }
 
@@ -102,8 +139,8 @@ export function updateBundle(id, f) {
   // 只传了部分字段（如上架/下架）也允许：缺的用当前值补上再校验
   const b = cleanBundle({ ...cur, ...f, id });
   db.prepare(
-    'UPDATE bundles SET name = ?, memory_mb = ?, cpus = ?, disk_mb = ?, cost = ?, enabled = ?, updated_at = ? WHERE id = ?'
-  ).run(b.name, b.memoryMb, b.cpus, b.diskMb, b.cost, f.enabled === false ? 0 : 1, now(), id);
+    'UPDATE bundles SET name = ?, memory_mb = ?, cpus = ?, disk_mb = ?, cost = ?, days = ?, stock = ?, enabled = ?, updated_at = ? WHERE id = ?'
+  ).run(b.name, b.memoryMb, b.cpus, b.diskMb, b.cost, b.days, b.stock, f.enabled === false ? 0 : 1, now(), id);
   return getBundle(id);
 }
 

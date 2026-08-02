@@ -7,6 +7,7 @@ import * as dk from './docker.js';
 import { emit, reset as resetEvents } from './events.js';
 import { getInvite, inviteProblem, consume, refund } from './invites.js';
 import { spendPoints, refundPoints, balanceOf, priceInstanceSpec } from './points.js';
+import { consumeBundleStock, refundBundleStock } from './bundles.js';
 import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
@@ -207,6 +208,7 @@ export async function createInstance(user, body) {
   }
 
   let paidPoints = 0;
+  let bundleId = null;
   if (invite) {
     if (!consume(invite.code)) throw new HttpError(403, '这张资源券刚刚被用完了');
   } else {
@@ -217,6 +219,12 @@ export async function createInstance(user, body) {
         `积分不够：这个配置要 ${paidPoints} 积分，你当前有 ${balanceOf(user.id)} 积分`
       );
     }
+    // 命中打包套餐的实例扣一份库存；没抢到（并发下刚卖完）就把积分退回。
+    if (plan.bundleId && !consumeBundleStock(plan.bundleId)) {
+      refundPoints(user.id, paidPoints, 'instance.create_failed', name);
+      throw new HttpError(409, '该套餐刚刚售罄，积分已退回，请选择其他套餐');
+    }
+    bundleId = plan.bundleId;
   }
 
   const id = crypto.randomUUID();
@@ -224,7 +232,10 @@ export async function createInstance(user, body) {
   // How long this instance gets to live is a property of the voucher — or of
   // the points tier — copied down now: editing the voucher later must not
   // retroactively move the deadline of something already built with it.
-  const lifeDays = invite ? lifespan.lifeDaysOf(invite) : config.pointsInstanceDays || null;
+  // 套餐自带时长时优先用套餐的（plan.days），否则跟随全局 POINTS_INSTANCE_DAYS。
+  const lifeDays = invite
+    ? lifespan.lifeDaysOf(invite)
+    : (plan.days !== null && plan.days !== undefined ? plan.days : config.pointsInstanceDays) || null;
 
   // Nothing is handed to Docker yet: the row goes in as a pending request and
   // waits for an admin, who sets up the tunnel by hand and then approves it.
@@ -233,8 +244,8 @@ export async function createInstance(user, body) {
   db.prepare(
     `INSERT INTO instances
       (id, user_id, name, image, template_id, memory_mb, cpus, disk_mb, env_json, ports_json, volume_name,
-       invite_code, paid_points, cmd_json, volume_paths_json, note, sleep_enabled, idle_minutes, life_days, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+       invite_code, paid_points, bundle_id, cmd_json, volume_paths_json, note, sleep_enabled, idle_minutes, life_days, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
   ).run(
     id,
     user.id,
@@ -248,6 +259,7 @@ export async function createInstance(user, body) {
     volumeName,
     invite?.code ?? null,
     paidPoints || null,
+    bundleId,
     cmd ? JSON.stringify(cmd) : null,
     JSON.stringify(volumePaths),
     String(body.note || '').slice(0, 500),
@@ -272,6 +284,7 @@ export async function createInstance(user, body) {
     db.prepare('DELETE FROM instances WHERE id = ?').run(id);
     if (invite) refund(invite.code);
     if (paidPoints) refundPoints(user.id, paidPoints, 'instance.create_failed', name);
+    refundBundleStock(bundleId);
     throw new HttpError(503, err.message);
   }
 
@@ -408,6 +421,11 @@ export async function approveInstance(row, admin, { addresses = {}, note } = {})
       db.prepare('UPDATE instances SET paid_points = NULL WHERE id = ?').run(row.id);
       emit(row.id, `${row.paid_points} 积分已退回，删掉这个实例后可以重新申请`, 'log');
     }
+    if (row.bundle_id) {
+      refundBundleStock(row.bundle_id);
+      db.prepare('UPDATE instances SET bundle_id = NULL WHERE id = ?').run(row.id);
+      emit(row.id, '套餐余量已退回', 'log');
+    }
   });
 }
 
@@ -417,9 +435,10 @@ export function rejectInstance(row, admin, reason) {
   releasePorts(row.id);
   if (row.invite_code) refund(row.invite_code);
   if (row.paid_points) refundPoints(row.user_id, row.paid_points, 'instance.reject', row.name);
+  refundBundleStock(row.bundle_id);
   db.prepare(
     `UPDATE instances SET status = 'rejected', reject_reason = ?, invite_code = NULL, paid_points = NULL,
-       ports_json = '[]', reviewed_by = ?, reviewed_at = ? WHERE id = ?`
+       bundle_id = NULL, ports_json = '[]', reviewed_by = ?, reviewed_at = ? WHERE id = ?`
   ).run(String(reason || '未说明原因').slice(0, 500), admin.username, now(), row.id);
   audit(admin, 'instance.reject', row.name, reason);
   emit(row.id, `申请被驳回：${reason || '未说明原因'}`, 'error');
@@ -663,10 +682,12 @@ export async function destroy(row, user, { keepVolume = false } = {}) {
   }
   // 花积分开的实例同样删除退分 —— 但已封存（到期）的不退：七天用满再退钱
   // 等于永动机，券没这个问题是因为券本来就是管理员一张张数着发的。
+  // 套餐余量跟积分一个口径：删了就退一份库存（到期封存不退）。
   if (config.refundInviteOnDelete && row.paid_points && row.status !== 'archived') {
     refundPoints(row.user_id, row.paid_points, 'instance.delete', row.name);
     refundedPoints = row.paid_points;
   }
+  if (row.bundle_id && row.status !== 'archived') refundBundleStock(row.bundle_id);
   audit(
     user,
     'instance.delete',
