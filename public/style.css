@@ -4258,6 +4258,10 @@ dialog.terms .terms-doc {
   min-width: 0;
   word-break: break-word;
 }
+.announcement-banner-title {
+  display: block;
+  margin-bottom: 2px;
+}
 .announcement-banner-body p { margin: 0; }
 .announcement-banner-body p + p { margin-top: 6px; }
 .announcement-banner-body a { color: inherit; text-decoration: underline; }

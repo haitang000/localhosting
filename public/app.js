@@ -1101,7 +1101,7 @@ function announcementBarHtml(announcements) {
         <div class="announcement-banner ${esc(a.priority)}">
           <div class="announcement-banner-inner">
             <span class="announcement-banner-ico">${icon(icons[a.priority] || 'info')}</span>
-            <div class="announcement-banner-body">${a.html}</div>
+            <div class="announcement-banner-body">${a.title ? `<b class="announcement-banner-title">${esc(a.title)}</b>` : ''}${a.html}</div>
             ${a.dismissible ? `<button class="announcement-banner-close" data-dismiss-ann="${a.id}" aria-label="关闭公告">${icon('x')}</button>` : ''}
           </div>
         </div>`).join('')}
