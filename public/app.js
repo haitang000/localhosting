@@ -1159,6 +1159,38 @@ function wireAnnouncementDismiss() {
   }
 }
 
+/* ---------------- announcement lightbox ---------------- */
+let annLightbox = null;
+
+function closeAnnouncementLightbox() {
+  if (!annLightbox) return;
+  document.removeEventListener('keydown', onAnnLightboxKey);
+  document.body.style.overflow = '';
+  annLightbox.classList.remove('open');
+  const el = annLightbox;
+  setTimeout(() => el.remove(), 200);
+  annLightbox = null;
+}
+
+function onAnnLightboxKey(e) {
+  if (e.key === 'Escape') closeAnnouncementLightbox();
+}
+
+function openAnnouncementLightbox(img) {
+  closeAnnouncementLightbox();
+  annLightbox = document.createElement('div');
+  annLightbox.className = 'lightbox';
+  const big = document.createElement('img');
+  big.src = img.currentSrc || img.src;
+  big.alt = img.alt || '';
+  annLightbox.appendChild(big);
+  annLightbox.onclick = closeAnnouncementLightbox;
+  document.body.appendChild(annLightbox);
+  document.body.style.overflow = 'hidden';
+  document.addEventListener('keydown', onAnnLightboxKey);
+  requestAnimationFrame(() => annLightbox.classList.add('open'));
+}
+
 function shell(active, inner) {
   const admin = state.user.role === 'admin';
   app.className = '';
@@ -6753,6 +6785,14 @@ async function boot() {
   await route();
   maybeOpenWizard();
 }
+
+// 公告配图点开灯箱：app 是常驻元素，事件委托绑一次，页面怎么重绘都在。
+app.addEventListener('click', (e) => {
+  const img = e.target.closest('.announcement-banner-body img, .announcement-item-body img');
+  if (!img) return;
+  e.preventDefault();
+  openAnnouncementLightbox(img);
+});
 
 window.addEventListener('hashchange', route);
 boot();
