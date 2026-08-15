@@ -75,6 +75,8 @@ export const config = {
   captchaMinSolveMs: num(process.env.CAPTCHA_MIN_SOLVE_MS, 1000),
   captchaMinTokenAgeMs: num(process.env.CAPTCHA_MIN_TOKEN_AGE_MS, 300),
   captchaMaxChallengesPerIp: num(process.env.CAPTCHA_MAX_CHALLENGES_PER_IP, 3),
+  // 严格模式（默认值）：每次都要求完成图片回正，不靠行为分析放行。管理后台可改，立即生效。
+  captchaStrict: bool(process.env.CAPTCHA_STRICT, false),
 
   // --- Docker ---
   dockerHost: process.env.DOCKER_HOST || '',

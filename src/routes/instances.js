@@ -43,7 +43,10 @@ router.patch('/:id/sleep', async (req, res) => {
 router.post('/:id/renew', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
   const days = Number(req.body?.days ?? 0);
-  if (!Number.isInteger(days) || days <= 0) return res.status(400).json({ error: '续期天数需为正整数' });
+  // 上限 3650 天（10 年）：超大的天数会撑爆 Date 导致 500，且对正常续期毫无意义。
+  if (!Number.isInteger(days) || days <= 0 || days > 3650) {
+    return res.status(400).json({ error: '续期天数需为 1 - 3650 的整数' });
+  }
   const fresh = svc.renewInstance(row, req.user, days);
   res.json({ instance: await svc.serialize(fresh) });
 });
@@ -66,6 +69,7 @@ router.get('/:id/download', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
   const result = await svc.destroy(row, req.user, { keepVolume: req.query.keepVolume === '1' });
+  if (row.container_id) statsHistory.delete(row.container_id);
   res.json({ ok: true, ...result });
 });
 
@@ -81,11 +85,21 @@ router.get('/:id/logs', async (req, res) => {
   }
 });
 
+/* 运行状态历史：每次轮询追加一个样本（按容器保留最多 STATS_HISTORY_MAX 条），
+   客户端重进详情页时用它把走势图补满，不用从头攒。 */
+const statsHistory = new Map(); // container_id -> { t, cpu, mem, rx, tx }[]
+const STATS_HISTORY_MAX = 360; // 每 4s 一次 ≈ 24 分钟
+
 router.get('/:id/stats', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
   if (!row.container_id) return res.json({ stats: null });
   try {
-    res.json({ stats: await dk.getStats(row.container_id) });
+    const stats = await dk.getStats(row.container_id);
+    const arr = statsHistory.get(row.container_id) ?? [];
+    arr.push({ t: Date.now(), cpu: stats.cpuPercent, mem: stats.memPercent, rx: stats.netRx, tx: stats.netTx });
+    if (arr.length > STATS_HISTORY_MAX) arr.shift();
+    statsHistory.set(row.container_id, arr);
+    res.json({ stats, history: arr });
   } catch {
     res.json({ stats: null });
   }

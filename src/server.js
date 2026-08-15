@@ -21,7 +21,7 @@ import { router as adminRoutes, announcementImageRouter } from './routes/admin.j
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
-import { seedSettings, panelName, panelColor } from './settings.js';
+import { seedSettings, panelName, panelColor, captchaMode } from './settings.js';
 
 seedBundles();
 seedSettings();
@@ -30,6 +30,28 @@ const app = express();
 if (config.trustProxy) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(attachUser);
+
+// ── 安全响应头 ──
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  // 面板本身不许被 iframe（防点击劫持）；静态站点和公告图片是给别人引用的，不加框限制。
+  if (!req.path.startsWith('/s/') && !req.path.startsWith('/announcement-images/')) {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  }
+  next();
+});
+
+// ── CSRF 门：/api 的写操作必须带自定义头 X-Lh-Csrf ──
+// 跨站的表单提交带不了自定义头；跨源 fetch 想带自定义头必须先过 CORS 预检，
+// 而这个面板从不回 Access-Control-Allow-*，预检必然失败。头本身不是秘密，
+// 是「跨站代码根本带不上它」这件事在把关——静态站点同站 CSRF 的路就此堵死。
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.headers['x-lh-csrf'] === '1') return next();
+  return res.status(403).json({ error: '拒绝跨站请求' });
+});
 
 // Published static sites. Mounted before the JSON parser so page requests never
 // touch it, and before the SPA fallback so /s/... is never swallowed by it.
@@ -68,6 +90,7 @@ app.get('/api/config', (_req, res) => {
   res.json({
     panelName: panelName(),
     panelColor: panelColor(),
+    captchaMode: captchaMode(),
     publicHost: config.publicHost || null,
     publicScheme: config.publicScheme,
     // 面板自己的对外入口。addressUnset = 还没人告诉过面板它在公网上叫什么，

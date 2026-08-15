@@ -11,6 +11,7 @@ export function seedSettings() {
   const seeds = {
     panel_name: config.panelName,
     panel_color: config.panelColor,
+    captcha_mode: config.captchaStrict ? 'strict' : 'normal',
   };
   const get = db.prepare('SELECT value FROM settings WHERE key = ?');
   const ins = db.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
@@ -41,3 +42,11 @@ export function panelColor() {
   const v = getSetting('panel_color', config.panelColor);
   return /^#[0-9a-fA-F]{6}$/.test(v) ? v : config.panelColor;
 }
+
+/** 验证码严格程度：normal = 行为检测、拿不准才出图；strict = 每次都出图。 */
+export function captchaMode() {
+  const v = getSetting('captcha_mode', config.captchaStrict ? 'strict' : 'normal');
+  return v === 'strict' ? 'strict' : 'normal';
+}
+
+export const captchaStrict = () => captchaMode() === 'strict';

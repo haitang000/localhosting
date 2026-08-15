@@ -39,7 +39,10 @@ function sanitizeHtml(html) {
         if (allowed.indexOf(name) === -1) continue;
         if (name === 'href' || name === 'src') {
           const lv = value.toLowerCase();
-          if (!SAFE_PROTOCOLS.some(p => lv.startsWith(p)) && !lv.startsWith('/') && !lv.startsWith('#') && !lv.startsWith('.')) continue;
+          // data: 对图片无害（<img> 里的 SVG 不会执行脚本），但放进链接就是一个
+          // 可点的 data:text/html，所以 href 不放行 data:。
+          const okProtocols = name === 'src' ? SAFE_PROTOCOLS : SAFE_PROTOCOLS.filter((p) => p !== 'data:');
+          if (!okProtocols.some((p) => lv.startsWith(p)) && !lv.startsWith('/') && !lv.startsWith('#') && !lv.startsWith('.')) continue;
         }
         if (name === 'target' && SAFE_TARGETS.indexOf(value) === -1) continue;
         out += ` ${name}="${escAttr(value)}"`;

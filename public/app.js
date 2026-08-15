@@ -76,7 +76,11 @@ function toast(message, kind = '') {
 async function api(path, { method = 'GET', body, raw = false } = {}) {
   const res = await fetch(`/api${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      // 服务端对 /api 写操作要求这个头（跨站表单/脚本带不了它），防同站 CSRF。
+      'X-Lh-Csrf': '1',
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (raw) return res;
@@ -516,9 +520,9 @@ function getHints() {
 }
 
 /* ---------------- 图片回正验证 ----------------
-   Behavior 分析落在不确定区时，服务端发来一张已旋转的 SVG 图片；弹窗里把
-   它拖回正位（或点按钮 ±15° 微调）即通过。取消弹窗视为放弃本次验证，
-   resolve(null)，调用方恢复待验证状态。 */
+   Behavior 分析落在不确定区（或验证码严格模式）时，服务端发来一张已旋转的
+   真实照片；弹窗里把它拖回正位（或点按钮 ±15° 微调）即通过。取消弹窗视为
+   放弃本次验证，resolve(null)，调用方恢复待验证状态。 */
 function solveRotatePuzzle(challenge) {
   return new Promise((resolve) => {
     document.getElementById('puzzle-dlg')?.remove();
@@ -527,18 +531,14 @@ function solveRotatePuzzle(challenge) {
     dlg.className = 'puzzle';
     dlg.setAttribute('aria-labelledby', 'puzzle-title');
     dlg.innerHTML = `
-      <h3 id="puzzle-title">${icon('rotate-cw')}请将图片旋转回正</h3>
-      <p class="puzzle-tip">拖动图片旋转，让图里的「上方」对准顶部的三角标记；也可以用按钮微调。</p>
+      <h3 id="puzzle-title">${icon('rotate-cw')}旋转图片回正</h3>
+      <p class="puzzle-tip">拖动图片或滑块，让「上方」对准顶部的三角标记</p>
       <div class="puzzle-stage" id="puzzle-stage" tabindex="0" role="slider" aria-label="旋转图片"
            aria-valuemin="0" aria-valuemax="359" aria-valuenow="0" aria-valuetext="0 度">
         <span class="puzzle-notch" aria-hidden="true"></span>
         <img class="puzzle-img" src="${esc(challenge.image)}" alt="旋转验证图片" draggable="false" />
       </div>
-      <div class="puzzle-readout"><span id="puzzle-angle">0°</span></div>
-      <div class="row puzzle-btns">
-        <button type="button" class="ghost" id="puzzle-ccw" title="逆时针旋转 15°">${icon('undo-2')}</button>
-        <button type="button" class="ghost" id="puzzle-cw" title="顺时针旋转 15°">${icon('rotate-cw')}</button>
-      </div>
+      <input type="range" id="puzzle-slider" class="puzzle-range" min="0" max="359" step="1" value="0" aria-label="旋转图片角度" />
       <div class="err" id="puzzle-err"></div>
       <div class="row" style="justify-content:flex-end;margin-top:8px">
         <button class="ghost" data-cancel>取消</button>
@@ -557,14 +557,18 @@ function solveRotatePuzzle(challenge) {
 
     const stage = dlg.querySelector('#puzzle-stage');
     const img = dlg.querySelector('.puzzle-img');
-    const angleEl = dlg.querySelector('#puzzle-angle');
     const errEl = dlg.querySelector('#puzzle-err');
     const doneBtn = dlg.querySelector('[data-done]');
+    const slider = dlg.querySelector('#puzzle-slider');
+    slider.oninput = () => {
+      deg = Number(slider.value);
+      paint();
+    };
 
     const norm = (d) => ((d % 360) + 360) % 360;
     const paint = () => {
       img.style.transform = `rotate(${deg}deg)`;
-      angleEl.textContent = `${Math.round(deg)}°`;
+      slider.value = Math.round(deg);
       stage.setAttribute('aria-valuenow', Math.round(deg));
       stage.setAttribute('aria-valuetext', `${Math.round(deg)} 度`);
     };
@@ -608,9 +612,6 @@ function solveRotatePuzzle(challenge) {
       if (e.key === 'ArrowRight') { e.preventDefault(); nudge(15); }
     });
 
-    dlg.querySelector('#puzzle-ccw').onclick = () => nudge(-15);
-    dlg.querySelector('#puzzle-cw').onclick = () => nudge(15);
-
     doneBtn.onclick = async () => {
       doneBtn.disabled = true;
       errEl.textContent = '';
@@ -633,7 +634,8 @@ function solveRotatePuzzle(challenge) {
     dlg.addEventListener('cancel', () => finish(null));
     dlg.onclose = () => {
       if (!settled) resolve(null);
-      dlg.remove();
+      // 等退出动画（180ms）播完再移除，不然 transition 被立刻掐断。
+      setTimeout(() => dlg.remove(), 180);
     };
     dlg.showModal();
   });
@@ -3073,6 +3075,7 @@ async function viewInstance(id) {
         }
           ${cat(waiting ? 'scroll-text' : 'activity', waiting ? '申请内容' : '运行状态', { flush: true })}
           ${waiting ? '' : '<div class="row" style="gap:26px" id="stats"><span class="sub">读取中…</span></div>'}
+          ${waiting ? '' : '<div class="stat-charts" id="stat-charts"></div>'}
           <div class="kv" style="margin-top:12px">
             <span>${icon('container')}镜像 <code>${esc(i.image)}</code></span>
             <span>${icon('memory-stick')}内存上限 ${i.memoryMb} MB</span>
@@ -3107,7 +3110,6 @@ async function viewInstance(id) {
             ${i.state?.exitCode ? `<span>${icon('power')}退出码 ${i.state.exitCode}</span>` : ''}
           </div>
           ${i.note ? `<div class="hint">${icon('scroll-text')}备注：${esc(i.note)}</div>` : ''}
-        </div>
         ${!waiting && i.status !== 'archived' && i.sleep?.available ? sleepCardHtml(i) : ''}
         ${
           envRows
@@ -3441,21 +3443,89 @@ async function viewInstance(id) {
         };
       }
 
+      /* 运行状态历史：每 4s 攒一个样本，画成迷你走势图（最近 4 分钟）。
+         服务端按容器保留一份样本，重进详情页时先补上，走势不从头开始。 */
+      const MAX_PTS = 60;
+      const hist = { cpu: [], mem: [], rx: [], tx: [] };
+      let lastNet = null; // { t, rx, tx }，t 用 Date.now() 纪元
+      let seeded = false;
+      const sparkPts = (vals, max) => {
+        const m = Math.max(max, ...vals, 1);
+        return vals.map(
+          (v, i) => `${(2 + (i / (MAX_PTS - 1)) * 116).toFixed(1)},${(30 - (v / m) * 28).toFixed(1)}`
+        );
+      };
+      const sparkSvg = (vals, max, stroke) =>
+        vals.length < 2
+          ? '<span class="spark-ghost">…</span>'
+          : `<svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points="${sparkPts(vals, max).join(' ')}" fill="none" stroke="${stroke}" stroke-width="1.5"
+                stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+      const chartsHtml = () => {
+        const rxMax = Math.max(...hist.rx, ...hist.tx, 1);
+        return `<div class="stat-chart">
+            <div class="cap"><span>CPU</span><span>${hist.cpu[hist.cpu.length - 1] ?? 0}%</span></div>
+            ${sparkSvg(hist.cpu, 100, 'var(--primary)')}
+          </div>
+          <div class="stat-chart">
+            <div class="cap"><span>内存</span><span>${hist.mem[hist.mem.length - 1] ?? 0}%</span></div>
+            ${sparkSvg(hist.mem, 100, 'var(--success)')}
+          </div>
+          <div class="stat-chart">
+            <div class="cap"><span>网络</span><span>${bytes(
+              hist.rx[hist.rx.length - 1] ?? 0
+            )}/s 入 · ${bytes(hist.tx[hist.tx.length - 1] ?? 0)}/s 出</span></div>
+            <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>
+            <div class="lgd">${icon('arrow-down-to-line')}入 · ${icon('arrow-up-from-line')}出</div>
+          </div>`;
+      };
+
       const pollStats = async () => {
         try {
-          const { stats } = await api(`/instances/${i.id}/stats`);
+          const { stats, history } = await api(`/instances/${i.id}/stats`);
           const box = document.getElementById('stats');
           if (!box) return;
-          box.innerHTML = stats
-            ? `<div class="stat"><b>${stats.cpuPercent}%</b><span>${icon('cpu')}CPU</span></div>
+          const charts = document.getElementById('stat-charts');
+          if (!stats) {
+            box.innerHTML = `<span class="sub">${icon('power')}容器未运行</span>`;
+            if (charts) charts.innerHTML = '';
+            return;
+          }
+          if (!seeded && history?.length) {
+            const src = history.slice(-MAX_PTS);
+            for (let k = 1; k < src.length; k++) {
+              const a = src[k - 1];
+              const b = src[k];
+              const dt = Math.max(0.1, (b.t - a.t) / 1000);
+              hist.cpu.push(b.cpu);
+              hist.mem.push(b.mem);
+              hist.rx.push(Math.max(0, (b.rx - a.rx) / dt));
+              hist.tx.push(Math.max(0, (b.tx - a.tx) / dt));
+            }
+            const last = src[src.length - 1];
+            lastNet = { t: last.t, rx: last.rx, tx: last.tx };
+            seeded = true;
+          }
+          hist.cpu.push(stats.cpuPercent);
+          hist.mem.push(stats.memPercent);
+          const t = Date.now();
+          const dt = lastNet ? Math.max(0.1, (t - lastNet.t) / 1000) : 0;
+          hist.rx.push(lastNet ? Math.max(0, (stats.netRx - lastNet.rx) / dt) : 0);
+          hist.tx.push(lastNet ? Math.max(0, (stats.netTx - lastNet.tx) / dt) : 0);
+          lastNet = { t, rx: stats.netRx, tx: stats.netTx };
+          for (const k of Object.keys(hist)) if (hist[k].length > MAX_PTS) hist[k].shift();
+          box.innerHTML = `<div class="stat"><b>${stats.cpuPercent}%</b><span>${icon('cpu')}CPU</span></div>
                <div class="stat"><b>${bytes(stats.memUsage)}</b><span>${icon('memory-stick')}内存 / ${bytes(
                  stats.memLimit
                )} (${stats.memPercent}%)</span></div>
                <div class="stat"><b>${bytes(stats.netRx)}</b>
                  <span>${icon('arrow-down-to-line')}入站流量</span></div>
                <div class="stat"><b>${bytes(stats.netTx)}</b>
-                 <span>${icon('arrow-up-from-line')}出站流量</span></div>`
-            : `<span class="sub">${icon('power')}容器未运行</span>`;
+                 <span>${icon('arrow-up-from-line')}出站流量</span></div>`;
+          if (charts) charts.innerHTML = chartsHtml();
         } catch {
           /* ignore */
         }
@@ -5847,6 +5917,20 @@ async function viewAdmin() {
         <div class="err" id="panel-name-err"></div>
       </div>
       <div class="card" style="margin-top:16px">
+        ${cat('shield', '验证码严格程度', { flush: true })}
+        <label class="field" style="margin:0;max-width:460px"><span>${icon('key-round')}登录 / 注册 / 签到时的验证强度</span>
+          <select id="captcha-mode">
+            <option value="normal" ${state.cfg?.captchaMode === 'strict' ? '' : 'selected'}>普通 —— 行为检测，拿不准时才出图片验证码</option>
+            <option value="strict" ${state.cfg?.captchaMode === 'strict' ? 'selected' : ''}>严格 —— 每次都要求完成图片验证码</option>
+          </select>
+          <div class="hint">严格模式更防脚本和批量注册，但每次验证都要把图片转正，体验稍重。改完立即生效，不用重启。</div>
+        </label>
+        <div class="row" style="margin-top:10px;align-items:center;gap:10px">
+          <button class="primary" id="captcha-mode-save">${icon('save')}保存</button>
+          <div class="err" id="captcha-mode-err"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
         ${cat('settings', '对外访问配置', { flush: true })}
         <div class="table-wrap"><table>
           <tr><td>${icon('globe')}PUBLIC_HOST</td><td class="mono">${esc(
@@ -6431,6 +6515,26 @@ function wireAdmin(refresh) {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') panelNameSave.click();
     });
+  }
+
+  // 验证码严格程度：normal = 行为检测；strict = 每次都出图片验证码。
+  const captchaSave = document.getElementById('captcha-mode-save');
+  if (captchaSave) {
+    captchaSave.onclick = async () => {
+      const errEl = document.getElementById('captcha-mode-err');
+      errEl.textContent = '';
+      try {
+        const r = await api('/admin/settings', {
+          method: 'PATCH',
+          body: { captchaMode: document.getElementById('captcha-mode').value },
+        });
+        state.cfg = { ...(state.cfg || {}), captchaMode: r.captchaMode };
+        toast(`验证码已切换为${r.captchaMode === 'strict' ? '严格' : '普通'}模式`, 'ok');
+        refresh();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    };
   }
 
   // 套餐管理：表单添加/编辑，列表里上架下架、删除。改完顺手刷新一次配置，

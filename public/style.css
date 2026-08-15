@@ -1300,18 +1300,53 @@ textarea {
 /* ---------- 图片回正验证弹窗 ----------
    行为分析落在不确定区时的兜底关卡：把旋转过的图片拖回正位。 */
 dialog.puzzle {
-  width: min(340px, 92vw);
+  width: min(320px, 92vw);
   text-align: center;
+  padding: 20px;
+  /* 进出场共用一条路径：材质化（缩放 + 模糊一起来），关闭是进入的反向。
+     display/overlay 的 allow-discrete 过渡让元素在 top layer 里多留
+     180ms，退出动画播完再真正消失。 */
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out),
+    filter 180ms var(--ease-out), overlay 180ms allow-discrete, display 180ms allow-discrete;
+}
+dialog.puzzle[open] {
+  animation: none;
+}
+dialog.puzzle:not([open]) {
+  opacity: 0;
+  transform: scale(0.96);
+  filter: blur(3px);
+}
+@starting-style {
+  dialog.puzzle[open] {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
+dialog.puzzle::backdrop {
+  opacity: 1;
+  transition: opacity 180ms var(--ease-out), overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+dialog.puzzle:not([open])::backdrop {
+  opacity: 0;
+}
+dialog.puzzle h3 {
+  letter-spacing: -0.02em;
 }
 dialog.puzzle .puzzle-tip {
   font-size: 13px;
   color: var(--default-500);
-  margin: 6px 0 14px;
+  margin: 4px 0 12px;
 }
 .puzzle-stage {
   position: relative;
-  width: 200px;
-  height: 200px;
+  width: 192px;
+  height: 192px;
   margin: 0 auto;
   border-radius: 50%;
   display: grid;
@@ -1342,31 +1377,19 @@ dialog.puzzle .puzzle-tip {
   z-index: 1;
 }
 .puzzle-img {
-  width: 164px;
-  height: 164px;
-  border-radius: 12px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
   box-shadow: var(--shadow-sm);
   background: var(--content2);
   pointer-events: none;
   will-change: transform;
 }
-.puzzle-readout {
+.puzzle-range {
+  width: 100%;
   margin-top: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--default-500);
-  font-variant-numeric: tabular-nums;
-}
-.puzzle-btns {
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-.puzzle-btns .ghost {
-  width: 44px;
-  padding: 8px 0;
-  display: inline-grid;
-  place-items: center;
+  accent-color: var(--primary);
+  cursor: pointer;
 }
 
 /* ---------- template gallery ---------- */
@@ -2487,6 +2510,59 @@ dialog.fm-edit {
 }
 .stat span {
   font-size: 12.5px;
+  color: var(--default-500);
+}
+
+/* ---------- 运行状态迷你走势图 ---------- */
+.stat-charts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+.stat-chart {
+  flex: 1;
+  min-width: 150px;
+  background: var(--content2);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.stat-chart .cap {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--default-500);
+  margin-bottom: 6px;
+}
+.stat-chart .cap span:last-child {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stat-chart svg.spark {
+  display: block;
+  width: 100%;
+  height: 36px;
+}
+.stat-chart .lgd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--default-500);
+}
+.stat-chart .lgd svg {
+  width: 12px;
+  height: 12px;
+}
+.spark-ghost {
+  display: block;
+  height: 36px;
+  line-height: 36px;
+  text-align: center;
+  font-size: 12px;
   color: var(--default-500);
 }
 

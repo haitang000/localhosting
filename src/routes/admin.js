@@ -11,7 +11,7 @@ import { refundPoints, spendPoints } from '../points.js';
 import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
-import { panelName, panelColor, setSetting } from '../settings.js';
+import { panelName, panelColor, setSetting, captchaMode } from '../settings.js';
 
 export const router = Router();
 router.use(requireAdmin);
@@ -117,7 +117,10 @@ router.patch('/users/:id', (req, res) => {
   // 登录表单、以为自己密码记错了。重新启用后原来的登录状态也直接恢复。
   // （改密码那条仍然清空会话——那是要把别处的登录踢下去。）
 
-  audit(req.user, 'admin.user_update', user.username, JSON.stringify(b));
+  // 明文新密码只进密码哈希，不写进审计日志。
+  const auditable = { ...b };
+  delete auditable.newPassword;
+  audit(req.user, 'admin.user_update', user.username, JSON.stringify(auditable));
   const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   res.json({ user: publicUser(updated) });
 });
@@ -452,12 +455,12 @@ announcementImageRouter.post('/upload', imageJson, (req, res) => {
 
 // ---------- 面板设置 ----------
 router.get('/settings', (req, res) => {
-  res.json({ panelName: panelName(), panelColor: panelColor() });
+  res.json({ panelName: panelName(), panelColor: panelColor(), captchaMode: captchaMode() });
 });
 
 router.patch('/settings', (req, res) => {
-  const { panelName: name, panelColor: color } = req.body || {};
-  if (name === undefined && color === undefined) {
+  const { panelName: name, panelColor: color, captchaMode: mode } = req.body || {};
+  if (name === undefined && color === undefined && mode === undefined) {
     return res.status(400).json({ error: '没有可保存的字段' });
   }
   if (name !== undefined) {
@@ -473,8 +476,14 @@ router.patch('/settings', (req, res) => {
     }
     setSetting('panel_color', color.toLowerCase());
   }
-  audit(req.user, 'admin.settings_brand', name ?? color, JSON.stringify(req.body));
-  res.json({ panelName: panelName(), panelColor: panelColor() });
+  if (mode !== undefined) {
+    if (mode !== 'normal' && mode !== 'strict') {
+      return res.status(400).json({ error: '验证码严格程度只能是 normal 或 strict' });
+    }
+    setSetting('captcha_mode', mode);
+  }
+  audit(req.user, 'admin.settings_brand', name ?? color ?? mode, JSON.stringify(req.body));
+  res.json({ panelName: panelName(), panelColor: panelColor(), captchaMode: captchaMode() });
 });
 
 // ---------- 积分套餐 ----------

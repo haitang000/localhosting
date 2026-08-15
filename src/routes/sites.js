@@ -153,7 +153,9 @@ serveRouter.use((req, res, next) => {
     return res.redirect(302, `/s/${encodeURIComponent(slug)}/${qs}`);
   }
 
-  if (rest.some((s) => s === '.' || s === '..' || s.includes('\\') || s.includes('\0'))) {
+  // 段在解码后复查：%2e%2e%2f 解码会变成含 / 的段，字面检查拦不住，
+  // 靠 sendFile 的根目录包含检查兜底之外，这里直接拒绝（文件名里不可能有 /）。
+  if (rest.some((s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\') || s.includes('\0'))) {
     return res.status(400).type('text/plain; charset=utf-8').send('400 — 路径不合法');
   }
 

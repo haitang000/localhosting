@@ -57,7 +57,14 @@ function parseCookies(header = '') {
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
-    out[part.slice(0, eq).trim()] = decodeURIComponent(part.slice(eq + 1).trim());
+    const key = part.slice(0, eq).trim();
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(part.slice(eq + 1).trim());
+    } catch {
+      // 客户端送来畸形 % 序列的 cookie：整条值当不存在，别让一次解码头炸掉请求。
+      out[key] = '';
+    }
   }
   return out;
 }

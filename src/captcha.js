@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
+import { captchaStrict } from './settings.js';
+import { loadPuzzles, rotateToPng } from './rotate-image.js';
 
 /* ================================================================
    验证体系分四层，成本由低到高：
@@ -9,8 +12,8 @@ import { config } from './config.js';
    2. 工作量证明 PoW —— 服务端发前缀 + 难度，客户端必须算出
       sha256(前缀+nonce) 前 N 位为 0 的 nonce。对人类零感知，
       对脚本是每个 token 实打实的算力开销，也是唯一没法「伪造」的一层。
-   3. 图片回正挑战 —— 行为落进不确定区时下发；旋转角度烘焙进几何
-      坐标，SVG 标记里找不到答案，只能真的去看图。
+   3. 图片回正挑战 —— 行为落进不确定区时下发；真实照片在服务端像素层
+      旋转（见 rotate-image.js），标记里没有任何角度信息，只能真的去看图。
    4. 一次性 token + IP 绑定 + 时间约束 —— 签发、求解、使用三环各有
       最低间隔，token 只能在签发的 IP 上用，用完即作废。
    ================================================================ */
@@ -249,240 +252,19 @@ function plausibleTrajectory(points, hints) {
 }
 
 /* ---- 图片回正验证（不确定行为时的兜底关卡）----
-   服务端把一张方向明确的 SVG 图按随机角度旋转后发给客户端，人把图转回
+   服务端把一张方向明确的真实照片按随机角度旋转后发给客户端，人把图转回
    正位即通过。角度容差、最低求解耗时都可配；记录一次性消费、5 分钟过期。 */
 
 const CHALLENGE_TTL = 5 * 60_000;
 const CHALLENGE_TRIES = 3; // 转歪一点可以调整重试，试完作废
 
-/** 每张图都以“上”为正；烘焙旋转后方向感立现。 */
-const ROTATE_PUZZLES = [
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-    <rect x="70" y="105" width="60" height="70" rx="6" fill="#d97757"/>
-    <polygon points="70,105 130,105 100,70" fill="#b3541e"/>
-    <rect x="60" y="150" width="80" height="26" rx="4" fill="#e08d62"/>
-    <circle cx="60" cy="150" r="4" fill="#f2b8a0"/>
-    <circle cx="140" cy="150" r="4" fill="#f2b8a0"/>
-    <rect x="14" y="85" width="30" height="7" rx="3.5" fill="#8a8f98"/>
-    <rect x="156" y="85" width="30" height="7" rx="3.5" fill="#8a8f98"/>
-    <rect x="95" y="52" width="6" height="26" rx="3" fill="#6b7280"/>
-    <polygon points="92,52 104,52 98,36" fill="#ef4444"/>
-  </svg>`,
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-    <path d="M40 40 L52 20 H88 L100 40 Z" fill="#ef4444"/>
-    <rect x="62" y="42" width="12" height="26" rx="3" fill="#f87171"/>
-    <path d="M50 90 Q100 30 150 90 L130 90 Q100 50 70 90 Z" fill="#60a5fa"/>
-    <path d="M60 130 Q100 95 140 130 L122 130 Q100 108 78 130 Z" fill="#93c5fd"/>
-    <path d="M70 168 Q100 138 130 168 L114 168 Q100 150 86 168 Z" fill="#bfdbfe"/>
-    <rect x="68" y="78" width="7" height="16" rx="2" fill="#e0b040"/>
-    <rect x="122" y="60" width="7" height="16" rx="2" fill="#e0b040"/>
-    <rect x="140" y="92" width="7" height="14" rx="2" fill="#e0b040"/>
-    <circle cx="38" cy="172" r="8" fill="#fbbf24"/>
-  </svg>`,
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-    <path d="M88 178 L112 178 L104 108 L96 108 Z" fill="#94a3b8"/>
-    <polygon points="104,108 96,108 100,58" fill="#ef4444"/>
-    <circle cx="100" cy="42" r="16" fill="#ef4444"/>
-    <rect x="66" y="98" width="68" height="5" rx="2.5" fill="#94a3b8"/>
-    <rect x="76" y="126" width="48" height="4" rx="2" fill="#94a3b8"/>
-  </svg>`,
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-    <rect x="52" y="82" width="96" height="92" rx="6" fill="#e7c26b"/>
-    <polygon points="50,82 150,82 100,36" fill="#c0392b"/>
-    <rect x="100" y="118" width="14" height="56" rx="3" fill="#8a5a2b"/>
-    <circle cx="107" cy="116" r="5" fill="#8a5a2b"/>
-    <rect x="66" y="44" width="22" height="26" rx="3" fill="#6b7280"/>
-    <rect x="62" y="20" width="6" height="10" rx="3" fill="#e2e8f0"/>
-    <rect x="84" y="20" width="6" height="10" rx="3" fill="#e2e8f0"/>
-    <rect x="73" y="12" width="6" height="10" rx="3" fill="#e2e8f0"/>
-    <rect x="62" y="36" width="30" height="6" rx="3" fill="#e2e8f0"/>
-    <path d="M60 40 Q66 48 60 56" stroke="#8b96a5" stroke-width="4" fill="none" stroke-linecap="round"/>
-  </svg>`,
-];
+/** 启动时把 src/captcha-images/ 里的 PNG 题图解码成像素（每张都以「上」为正）。 */
+const puzzles = loadPuzzles(fileURLToPath(new URL('./captcha-images/', import.meta.url)));
+if (!puzzles.length) {
+  console.warn('[captcha] 没找到题图（src/captcha-images/ 下要有 PNG），图片回正挑战将无法签发');
+}
 
 const challengeStore = new Map(); // id -> { answer, ip, createdAt, tries, expires }
-
-/* ---- SVG 旋转烘焙：把旋转矩阵写进几何坐标，标记里不留下答案 ---- */
-
-const ATTRS_RE = /([A-Za-z][A-Za-z0-9:-]*)="([^"]*)"/g;
-
-function attr(tag, name) {
-  return tag.match(new RegExp(`${name}="([^"]*)"`, 'i'))?.[1] ?? '';
-}
-
-/** 除了 drop 里列出的属性，其余原样保留（fill/stroke 等）。 */
-function otherAttrs(tag, drop) {
-  const parts = [];
-  for (const m of tag.matchAll(ATTRS_RE)) {
-    if (!drop.includes(m[1])) parts.push(`${m[1]}="${m[2]}"`);
-  }
-  return parts.join(' ');
-}
-
-const round1 = (v) => Math.round(v * 10) / 10;
-
-/** 绕 viewBox 中心 (100,100) 旋转一个点。 */
-function rotatePoint(x, y, cos, sin) {
-  return [100 + (x - 100) * cos - (y - 100) * sin, 100 + (x - 100) * sin + (y - 100) * cos];
-}
-
-function rotateRect(tag, cos, sin) {
-  const x = Number(attr(tag, 'x')) || 0;
-  const y = Number(attr(tag, 'y')) || 0;
-  const w = Number(attr(tag, 'width')) || 0;
-  const h = Number(attr(tag, 'height')) || 0;
-  const pts = [
-    [x, y],
-    [x + w, y],
-    [x + w, y + h],
-    [x, y + h],
-  ]
-    .map(([px, py]) => rotatePoint(px, py, cos, sin).map(round1))
-    .map((p) => p.join(','));
-  return `<polygon points="${pts.join(' ')}" ${otherAttrs(tag, ['x', 'y', 'width', 'height', 'rx', 'ry'])}/>`;
-}
-
-function rotateCircle(tag, cos, sin) {
-  const cx = Number(attr(tag, 'cx')) || 0;
-  const cy = Number(attr(tag, 'cy')) || 0;
-  const [x, y] = rotatePoint(cx, cy, cos, sin).map(round1);
-  return `<circle cx="${x}" cy="${y}" ${otherAttrs(tag, ['cx', 'cy'])}/>`;
-}
-
-function rotatePoints(tag, cos, sin) {
-  const name = tag.match(/^<\s*([a-z]+)/i)?.[1] ?? 'polygon';
-  const pts = attr(tag, 'points')
-    .trim()
-    .split(/\s+/)
-    .map((pair) => pair.split(',').map(Number))
-    .map(([px, py]) => rotatePoint(px, py, cos, sin).map(round1))
-    .map((p) => p.join(','));
-  return `<${name} ${otherAttrs(tag, ['points'])} points="${pts.join(' ')}"/>`;
-}
-
-const NUM_RE = /([A-Za-z])|(-?\d*\.?\d+(?:[eE][+-]?\d+)?)/g;
-
-/**
- * 把 path 里的坐标全部旋转（M/L/H/V/C/S/Q/T/A/Z 都处理），输出用绝对坐标
- * 重写。圆弧（A）保留椭圆半径，只转端点和 x 轴旋转角——题目里没用，属兜底。
- */
-function rotatePath(tag, cos, sin, deg) {
-  const d = attr(tag, 'd');
-  const tokens = [];
-  let m;
-  NUM_RE.lastIndex = 0;
-  while ((m = NUM_RE.exec(d))) tokens.push(m[1] ?? Number(m[2]));
-
-  let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, out = '';
-  const take = () => Number(tokens[i++]);
-  const rot = (x, y) => rotatePoint(x, y, cos, sin).map(round1);
-
-  while (i < tokens.length) {
-    let c = tokens[i];
-    if (typeof c === 'number') c = 'L'; // 隐式 L（M 后跟多组坐标）
-    else i++;
-    const rel = c !== c.toUpperCase();
-    const C = c.toUpperCase();
-    switch (C) {
-      case 'M': {
-        let x = take(), y = take();
-        if (rel) { x += cx; y += cy; }
-        out += `M${rot(x, y).join(',')}`;
-        cx = x; cy = y; sx = x; sy = y;
-        break;
-      }
-      case 'L': {
-        let x = take(), y = take();
-        if (rel) { x += cx; y += cy; }
-        out += `L${rot(x, y).join(',')}`;
-        cx = x; cy = y;
-        break;
-      }
-      case 'H': {
-        let x = take();
-        if (rel) x += cx;
-        out += `L${rot(x, cy).join(',')}`;
-        cx = x;
-        break;
-      }
-      case 'V': {
-        let y = take();
-        if (rel) y += cy;
-        out += `L${rot(cx, y).join(',')}`;
-        cy = y;
-        break;
-      }
-      case 'C': {
-        const pts = [];
-        for (let k = 0; k < 3; k++) {
-          let x = take(), y = take();
-          if (rel) { x += cx; y += cy; }
-          pts.push([x, y]);
-        }
-        out += `C${pts.map(([x, y]) => rot(x, y).join(',')).join(' ')}`;
-        cx = pts[2][0]; cy = pts[2][1];
-        break;
-      }
-      case 'S': {
-        const pts = [];
-        for (let k = 0; k < 2; k++) {
-          let x = take(), y = take();
-          if (rel) { x += cx; y += cy; }
-          pts.push([x, y]);
-        }
-        out += `S${pts.map(([x, y]) => rot(x, y).join(',')).join(' ')}`;
-        cx = pts[1][0]; cy = pts[1][1];
-        break;
-      }
-      case 'Q': {
-        const pts = [];
-        for (let k = 0; k < 2; k++) {
-          let x = take(), y = take();
-          if (rel) { x += cx; y += cy; }
-          pts.push([x, y]);
-        }
-        out += `Q${pts.map(([x, y]) => rot(x, y).join(',')).join(' ')}`;
-        cx = pts[1][0]; cy = pts[1][1];
-        break;
-      }
-      case 'T': {
-        let x = take(), y = take();
-        if (rel) { x += cx; y += cy; }
-        out += `T${rot(x, y).join(',')}`;
-        cx = x; cy = y;
-        break;
-      }
-      case 'A': {
-        const rx = take(), ry = take(), rotAng = take();
-        const large = take(), sweep = take();
-        let x = take(), y = take();
-        if (rel) { x += cx; y += cy; }
-        out += `A${round1(rx)},${round1(ry)},${round1(rotAng + deg)},${round1(large)},${round1(sweep)},${rot(x, y).join(',')}`;
-        cx = x; cy = y;
-        break;
-      }
-      case 'Z':
-        out += 'Z';
-        cx = sx; cy = sy;
-        break;
-      default:
-        break;
-    }
-  }
-  return `<path ${otherAttrs(tag, ['d'])} d="${out}"/>`;
-}
-
-/** 把整张 SVG 的几何绕 (100,100) 旋转 deg 度，标记里不出现任何角度信息。 */
-function bakeRotation(svg, deg) {
-  const rad = (deg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  return svg
-    .replace(/<rect\b[^>]*\/>/g, (t) => rotateRect(t, cos, sin))
-    .replace(/<circle\b[^>]*\/>/g, (t) => rotateCircle(t, cos, sin))
-    .replace(/<(polygon|polyline)\b[^>]*\/>/g, (t) => rotatePoints(t, cos, sin))
-    .replace(/<path\b[^>]*\/>/g, (t) => rotatePath(t, cos, sin, deg));
-}
 
 /** 签发一张回正挑战。每 IP 未解的挑战数有上限，防止并行穷举。 */
 function createChallenge(ip) {
@@ -491,14 +273,16 @@ function createChallenge(ip) {
     if (v.ip === ip && v.expires > Date.now()) open++;
   }
   if (open >= config.captchaMaxChallengesPerIp) return null;
+  if (!puzzles.length) return null;
 
-  const svg = ROTATE_PUZZLES[Math.floor(Math.random() * ROTATE_PUZZLES.length)];
+  const pic = puzzles[Math.floor(Math.random() * puzzles.length)];
   const answer = Math.floor(Math.random() * 360); // 全角度随机，30° 步进那套穷举法没用了
   const id = crypto.randomBytes(16).toString('hex');
+  const png = rotateToPng(pic, answer);
   challengeStore.set(id, { answer, ip, createdAt: Date.now(), tries: CHALLENGE_TRIES, expires: Date.now() + CHALLENGE_TTL });
   return {
     id,
-    image: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(bakeRotation(svg, answer))}`,
+    image: `data:image/png;base64,${png.toString('base64')}`,
   };
 }
 
@@ -512,7 +296,12 @@ export function angleDiff(a, b) {
 
 /** 校验回正角度；成功返回一次性 token，否则 null。
     题是别人 IP 签发的直接作废（防止拿去当穷举预言机）；
-    签发后 1 秒内求解判脚本；容差外重试几次，次数用尽或成功后作废。 */
+    签发后 1 秒内求解判脚本；容差外重试几次，次数用尽或成功后作废。
+
+    角度约定：服务端把照片按 answer 顺时针旋转（CSS 正角 = 顺时针），
+    用户把它转回正位 = 逆时针 answer，即 CSS 顺时针 (360 − answer) 度，
+    提交的正是这个值。所以这里跟 −answer 比，跟 +answer 比只有
+    answer≈0/180 时碰巧能过 —— 那就是「明明回正了却验证失败」的来源。 */
 export function verifyChallenge(id, angle, ip) {
   if (!id || typeof angle !== 'number' || !Number.isFinite(angle)) return null;
   const rec = challengeStore.get(id);
@@ -525,7 +314,7 @@ export function verifyChallenge(id, angle, ip) {
     return null;
   }
   if (Date.now() - rec.createdAt < config.captchaMinSolveMs) return null;
-  if (Math.abs(angleDiff(angle, rec.answer)) > config.captchaTolerance) {
+  if (Math.abs(angleDiff(angle, -rec.answer)) > config.captchaTolerance) {
     rec.tries -= 1;
     if (rec.tries <= 0) challengeStore.delete(id);
     return null;
@@ -576,6 +365,21 @@ export function createTurnstile(trajectory, formBehavior, hints, ip) {
   if (!plausibleHints(hints) || (trajectory && !plausibleTrajectory(trajectory, hints))) {
     recordReputation(ip);
     return null;
+  }
+
+  if (captchaStrict()) {
+    // 严格模式：行为分析不看了，每次都要求完成图片回正。
+    // 先把该 IP 未解的旧题作废 —— 否则攒满每 IP 上限后新题签不出来，
+    // 验证会静默失效（客户端拿不到 challenge，提交时才发现没 token）。
+    for (const [k, v] of challengeStore) {
+      if (v.ip === ip && v.expires > Date.now()) challengeStore.delete(k);
+    }
+    const ch = createChallenge(ip);
+    if (!ch) {
+      recordReputation(ip);
+      return null;
+    }
+    return { challenge: ch };
   }
 
   const trajPass = 4 + (Math.random() < 0.5 ? 1 : 0); // 4 或 5
