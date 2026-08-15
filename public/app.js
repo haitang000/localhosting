@@ -6084,8 +6084,13 @@ async function viewAdmin() {
           <input type="hidden" name="id" value="" />
           <label class="field"><span>${icon('scroll-text')}标题</span>
             <input name="title" placeholder="公告标题" maxlength="200" required /></label>
-          <label class="field"><span>内容（支持 Markdown）</span>
+          <label class="field"><span>${icon('wrap-text')}内容（支持 Markdown）</span>
             <textarea name="content" rows="6" required></textarea></label>
+          <div class="row" style="gap:8px;margin:-4px 0 2px">
+            <button type="button" class="small" id="ann-img-btn">${icon('image')}插入图片</button>
+            <span class="sub">上传后以 Markdown 插到光标处（PNG / JPG / GIF / WebP / AVIF，≤${bytes(state.cfg?.announcementImages?.maxBytes ?? 4194304)}）</span>
+            <input type="file" id="ann-img-file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" hidden />
+          </div>
           <label class="field"><span>${icon('layers')}格式</span>
             <select name="format"><option value="markdown">Markdown</option><option value="text">纯文本</option></select></label>
           <div class="two">
@@ -6588,6 +6593,38 @@ function wireAdmin(refresh) {
         toast(err.message, 'err');
       }
     };
+
+    const annImgBtn = document.getElementById('ann-img-btn');
+    const annImgFile = document.getElementById('ann-img-file');
+    if (annImgBtn) annImgBtn.onclick = () => annImgFile.click();
+    if (annImgFile) {
+      annImgFile.onchange = async () => {
+        const f = annImgFile.files?.[0];
+        annImgFile.value = '';
+        if (!f) return;
+        const max = state.cfg?.announcementImages?.maxBytes ?? 4 * 1024 * 1024;
+        if (f.size > max) return toast(`图片超过大小上限（${Math.round(max / 1048576)} MB）`, 'err');
+        const base64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1] ?? '');
+          r.onerror = () => reject(new Error('读取文件失败'));
+          r.readAsDataURL(f);
+        });
+        try {
+          const { url } = await api('/admin/announcement-images/upload', { method: 'POST', body: { base64 } });
+          const ta = annForm.content;
+          const start = ta.selectionStart ?? ta.value.length;
+          const end = ta.selectionEnd ?? start;
+          const md = `\n\n![](${url})\n`;
+          ta.value = ta.value.slice(0, start) + md + ta.value.slice(end);
+          ta.selectionStart = ta.selectionEnd = start + md.length;
+          ta.focus();
+          toast('图片已上传并插入', 'ok');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    }
   }
 
   app.querySelectorAll('[data-editann]').forEach(b => {

@@ -17,7 +17,7 @@ import * as announcements from './announcements.js';
 import { router as authRoutes } from './routes/auth.js';
 import { router as instanceRoutes } from './routes/instances.js';
 import { router as fileRoutes } from './routes/files.js';
-import { router as adminRoutes } from './routes/admin.js';
+import { router as adminRoutes, announcementImageRouter } from './routes/admin.js';
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
@@ -48,6 +48,10 @@ if (config.sitesEnabled) {
 // global parser. Only /api/instances/:id/files* matches here; everything else
 // falls through to the routers below.
 if (config.filesEnabled) app.use('/api/instances', fileRoutes);
+
+// Announcement image uploads do the same trick (base64 in JSON), so they get
+// their own body limit too — mounted ahead of the 256kb global parser.
+app.use('/api/admin/announcement-images', announcementImageRouter);
 
 app.use(express.json({ limit: '256kb' }));
 
@@ -118,6 +122,7 @@ app.get('/api/config', (_req, res) => {
       uploadMaxFiles: config.fileUploadMaxFiles,
       maxEntries: config.fileMaxEntries,
     },
+    announcementImages: { maxBytes: config.announcementImageMaxBytes },
     sleep: {
       enabled: config.idleSleepEnabled,
       defaultOn: config.idleSleepDefault,
@@ -168,6 +173,9 @@ const sendNotFoundPage = (res) =>
     if (err && !res.headersSent) res.type('text/plain; charset=utf-8').send('404 — 页面不存在');
     else if (err) res.end();
   });
+
+// Announcement images: uploaded by admins, served straight from disk.
+app.use('/announcement-images', express.static(config.announcementImagesDir));
 
 // 404.html 自己也躺在 public/ 里；先截下来，别让 static 拿 200 把「页面不存在」当活页发出去。
 app.get(['/404', '/404.html'], (_req, res) => sendNotFoundPage(res));
@@ -261,6 +269,7 @@ const server = app.listen(config.port, config.host, async () => {
       console.warn('    面板端口在公网上是什么地址，就把它填进 .env 的 PANEL_PUBLIC_URL\n');
     }
   }
+  announcements.sweepImages();
   try {
     const v = await dk.ping();
     console.log(`  Docker 已连接：${v.Version} (${v.Os}/${v.Arch})\n`);

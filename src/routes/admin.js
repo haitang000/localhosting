@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { db, now, audit } from '../db.js';
 import { requireAdmin, publicUser, hashPassword } from '../auth.js';
 import { config } from '../config.js';
@@ -415,6 +415,22 @@ router.delete('/announcements/:id', (req, res) => {
   announcements.del(ann.id);
   audit(req.user, 'admin.announcement_delete', ann.title, null);
   res.json({ ok: true });
+});
+
+// ---------- announcement images ----------
+// Uploads arrive base64'd inside a JSON body, so they need their own body limit
+// (the global parser is 256kb). This router is mounted ahead of that parser in
+// server.js, exactly like the container file manager in routes/files.js.
+const imageJson = express.json({
+  limit: `${Math.ceil((config.announcementImageMaxBytes * 1.4) / 1048576) + 1}mb`,
+});
+
+export const announcementImageRouter = Router();
+announcementImageRouter.use(requireAdmin);
+announcementImageRouter.post('/upload', imageJson, (req, res) => {
+  const image = announcements.uploadImage(req.body?.base64);
+  audit(req.user, 'admin.announcement_image_upload', image.name, `${image.bytes} 字节`);
+  res.status(201).json({ url: image.url, name: image.name });
 });
 
 // ---------- 面板设置 ----------

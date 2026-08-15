@@ -247,6 +247,10 @@ export const config = {
   // panel, e.g. https://pages.example.com  → address becomes <base>/<slug>/
   sitePublicBase: (process.env.SITE_PUBLIC_BASE || '').replace(/\/+$/, ''),
 
+  // --- Announcement images (admins upload images into announcement markdown) ---
+  announcementImagesDir: process.env.ANNOUNCEMENT_IMAGES_DIR || path.join(dataDir, 'announcement-images'),
+  announcementImageMaxBytes: num(process.env.ANNOUNCEMENT_IMAGE_MAX_BYTES, 4 * 1024 * 1024),
+
   // --- Idle sleep (stop when nobody uses it, start again on first connect) ---
   // While an instance sleeps the panel holds its host ports open; the first TCP
   // connection is parked, the container is started, then the connection is
@@ -263,6 +267,7 @@ export const config = {
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 if (config.sitesEnabled) fs.mkdirSync(config.sitesDir, { recursive: true });
+fs.mkdirSync(config.announcementImagesDir, { recursive: true });
 
 export function publicAddress(hostPort) {
   const host = config.publicHost || 'localhost';

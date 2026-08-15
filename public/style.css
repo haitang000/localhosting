@@ -4338,6 +4338,14 @@ dialog.terms .terms-doc {
   border-left: 3px solid var(--default-300);
   color: var(--default-600);
 }
+.announcement-banner-body img,
+.announcement-item-body img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 8px 0;
+  border-radius: 8px;
+}
 
 @media (prefers-color-scheme: dark) {
   .announcement-banner-body code {
