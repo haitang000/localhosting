@@ -3465,21 +3465,21 @@ async function viewInstance(id) {
         const rxMax = Math.max(...hist.rx, ...hist.tx, 1);
         return `<div class="stat-chart">
             <div class="cap"><span>CPU</span><span>${hist.cpu[hist.cpu.length - 1] ?? 0}%</span></div>
-            ${sparkSvg(hist.cpu, 100, 'var(--primary)')}
+            ${sparkSvg(hist.cpu, 100, '#3b82f6')}
           </div>
           <div class="stat-chart">
             <div class="cap"><span>内存</span><span>${hist.mem[hist.mem.length - 1] ?? 0}%</span></div>
-            ${sparkSvg(hist.mem, 100, 'var(--success)')}
+            ${sparkSvg(hist.mem, 100, '#22c55e')}
           </div>
           <div class="stat-chart">
             <div class="cap"><span>网络</span><span>${bytes(
               hist.rx[hist.rx.length - 1] ?? 0
             )}/s 入 · ${bytes(hist.tx[hist.tx.length - 1] ?? 0)}/s 出</span></div>
             <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
-              <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-              <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
             </svg>
-            <div class="lgd"><span class="lgd-dot" style="background:var(--primary)"></span>入站<span class="lgd-dot" style="background:var(--warning)"></span>出站</div>
+            <div class="lgd"><span class="lgd-dot" style="background:#06b6d4"></span>入站<span class="lgd-dot" style="background:#f59e0b"></span>出站</div>
           </div>`;
       };
 
