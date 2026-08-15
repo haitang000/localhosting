@@ -1818,7 +1818,17 @@ async function openCheckin() {
     <div style="text-align:center">
       <div style="font-size:32px;margin-bottom:8px">${icon('calendar')}</div>
       <h3 style="margin:0 0 4px">每日签到</h3>
-      <div class="sub" style="margin-bottom:16px">完成验证即可获得随机积分</div>
+      <div class="sub" style="margin-bottom:16px">完成验证，随机获得 10 ~ 30 积分</div>
+      <div class="checkin-stats">
+        <div class="checkin-stat">
+          <b>${state.user.points ?? 0}</b>
+          <span>当前积分</span>
+        </div>
+        <div class="checkin-stat">
+          <b>10 ~ 30</b>
+          <span>今日奖励</span>
+        </div>
+      </div>
       <div class="turnstile-wrap" style="display:flex;flex-direction:column;align-items:center;margin:12px 0">
         <div class="turnstile" id="checkin-turnstile" role="button" tabindex="0" aria-label="我不是机器人，点击验证">
           <span class="turnstile-icon" id="checkin-turnstile-icon"></span>
@@ -1961,11 +1971,11 @@ async function openCheckin() {
       const r = await api('/checkin', { method: 'POST', body: { turnstileToken } });
       trajCleanup();
       dlg.innerHTML = `
-        <div style="text-align:center;padding:16px 0">
+        <div class="checkin-done">
           <div style="font-size:48px;color:var(--success);margin-bottom:12px">${icon('circle-check')}</div>
           <h3 style="margin:0">签到成功！</h3>
-          <div style="font-size:28px;font-weight:700;margin:16px 0;color:var(--primary)">+${r.points} 积分</div>
-          <div class="sub">当前积分：${r.total}</div>
+          <div class="checkin-gain">+${r.points}<span> 积分</span></div>
+          <div class="sub">当前积分：${r.total}，明天再来哦</div>
           <button class="primary" style="margin-top:20px" data-close>${icon('check')}好的</button>
         </div>`;
       dlg.querySelector('[data-close]').onclick = () => dlg.close();
@@ -1998,10 +2008,19 @@ function wireInstanceActions(refresh) {
   app.querySelectorAll('[data-del]').forEach(
     (b) =>
       (b.onclick = async () => {
-        const msg = b.dataset.pending
+        const pending = !!b.dataset.pending;
+        const msg = pending
           ? `撤回「${b.dataset.name}」的创建申请？占用的端口会释放，积分 / 券退回。`
           : `确定删除实例「${b.dataset.name}」？容器和数据卷都会被清除，不可恢复。`;
-        if (!confirm(msg)) return;
+        const yes = await askDialog({
+          title: pending ? '撤回申请' : '删除实例',
+          label: pending ? '' : '请输入实例名称以确认',
+          ok: pending ? '撤回' : '删除',
+          kind: 'danger',
+          hint: msg,
+          match: pending ? '' : b.dataset.name,
+        });
+        if (yes !== (pending ? true : b.dataset.name)) return;
         b.disabled = true;
         try {
           const r = await api(`/instances/${b.dataset.del}`, { method: 'DELETE' });
@@ -2942,8 +2961,18 @@ async function viewInstance(id) {
       .join('');
 
     const waiting = i.status === 'pending' || i.status === 'rejected';
+    const creating = i.status === 'creating';
 
-    const overview = `
+    const overview = creating
+      ? `
+      <div class="grid" style="grid-template-columns:1fr;gap:16px">
+        <div class="card">
+          ${cat('rotate-cw', '创建日志', { flush: true })}
+          <p style="margin:0 0 10px">${icon('hourglass')}容器正在创建，请稍等片刻。创建完成后会自动进入运行状态。</p>
+          <pre class="logs" id="events" style="max-height:260px">等待事件…</pre>
+        </div>
+      </div>`
+      : `
       <div class="grid" style="grid-template-columns:1fr;gap:16px">
         ${
           i.status === 'pending'
@@ -3194,9 +3223,11 @@ async function viewInstance(id) {
                       data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
                       data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
                      <button class="small" data-dl="${esc(i.id)}">${icon('download')}下载数据</button>`
-                  : i.status === 'archived'
+                    : i.status === 'archived'
                     ? ''
-                    : i.status === 'running'
+                    : i.status === 'creating'
+                      ? ''
+                      : i.status === 'running'
                     ? `${i.life?.days ? `<button class="primary small" data-renew="${esc(i.id)}"
                         data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
                         data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
@@ -3225,7 +3256,7 @@ async function viewInstance(id) {
            'layout-dashboard'
          )}概览</button>
          ${
-           waiting
+           waiting || creating
              ? ''
              : `<button data-tab="logs" class="${tab === 'logs' ? 'on' : ''}">${icon('scroll-text')}日志</button>
                 <button data-tab="console" class="${tab === 'console' ? 'on' : ''}">${icon(
@@ -3262,7 +3293,7 @@ async function viewInstance(id) {
     revealActive('.tabbar', 'button.on');
     wireInstanceActions(paint);
 
-    if (tab === 'overview' && waiting) {
+    if (tab === 'overview' && (waiting || creating)) {
       hookEvents(i.id);
       // The admin may approve at any moment; repaint once the status moves on.
       timers.push(
@@ -3280,7 +3311,7 @@ async function viewInstance(id) {
       );
     }
 
-    if (tab === 'overview' && !waiting) {
+    if (tab === 'overview' && !waiting && !creating) {
       hookEvents(i.id);
       const saveSleep = document.getElementById('sleep-save');
       if (saveSleep) {
@@ -4763,7 +4794,7 @@ function wireConsole(i) {
    directory should not cost a full instance fetch. */
 
 /** Small modal in the panel's own dress, instead of prompt()/confirm(). */
-function askDialog({ title, label, value = '', ok = '确定', kind = '', hint = '' }) {
+function askDialog({ title, label, value = '', ok = '确定', kind = '', hint = '', match = '' }) {
   return new Promise((resolve) => {
     document.getElementById('ask-dlg')?.remove();
     const dlg = document.createElement('dialog');
@@ -4780,6 +4811,11 @@ function askDialog({ title, label, value = '', ok = '确定', kind = '', hint = 
     document.body.append(dlg);
     const input = dlg.querySelector('input');
     if (input) input.value = value;
+    const okBtn = dlg.querySelector('button[value="ok"]');
+    if (match && input && okBtn) {
+      okBtn.disabled = true;
+      input.addEventListener('input', () => (okBtn.disabled = input.value !== match));
+    }
     // Esc closes with returnValue '' — same as 取消, so both land on null.
     dlg.onclose = () => {
       const answer = dlg.returnValue === 'ok' ? (input ? input.value : true) : null;
