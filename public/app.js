@@ -1471,9 +1471,9 @@ function openWizard(startStep = 0) {
         try {
           const { voucher: v } = await api(`/auth/voucher/${encodeURIComponent(code)}`);
           info.style.color = 'var(--success)';
-          info.textContent = `✓ 内存 ${v.memoryMb} MB · CPU ${v.cpus} 核 · 端口 ${v.ports} 个 · 还能用 ${v.remaining} 次${
-            v.allowCustomImage ? ' · 允许自定义镜像' : ''
-          }`;
+          info.textContent = `✓ 内存 ${v.memoryMb} MB · CPU ${v.cpus} 核 · 端口 ${v.ports} 个${
+            v.diskMb ? ` · 硬盘 ${fmtMb(v.diskMb)}` : ''
+          } · 还能用 ${v.remaining} 次${v.allowCustomImage ? ' · 允许自定义镜像' : ''}`;
         } catch (err) {
           info.style.color = 'var(--danger)';
           info.textContent = err.message;
@@ -2151,9 +2151,11 @@ function viewNew() {
   const customOk = () =>
     state.user.role === 'admin' || state.user.quota.allowCustomImage || !!draft.voucher?.allowCustomImage;
   const voucherLine = (v) =>
-    `内存 ${v.memoryMb} MB · CPU ${v.cpus} 核 · 端口 ${v.ports} 个 · 剩余可用 ${v.remaining} 次${
-      v.allowCustomImage ? ' · 允许自定义镜像' : ''
-    } · ${v.instanceDays ? `实例有效 ${v.instanceDays} 天，到期封存` : '实例永久有效'}`;
+    `内存 ${v.memoryMb} MB · CPU ${v.cpus} 核 · 端口 ${v.ports} 个${v.diskMb ? ` · 硬盘 ${fmtMb(v.diskMb)}` : ''} · 剩余可用 ${
+      v.remaining
+    } 次${v.allowCustomImage ? ' · 允许自定义镜像' : ''} · ${
+      v.instanceDays ? `实例有效 ${v.instanceDays} 天，到期封存` : '实例永久有效'
+    }`;
   // 静态网页专用券在这条路上走不通，第 1 步就说清楚，别让人填完四页才被驳回。
   const SITE_ONLY_MSG =
     '这是静态网页专用券，只能拿去「静态站点」发网页，创建实例请向管理员另要一张';
@@ -5153,7 +5155,7 @@ function viewAccount() {
                    <td><code>${esc(v.code)}</code></td>
                    <td class="sub">${v.siteOnly ? `${icon('globe')}仅静态网页 · ` : ''}${v.memoryMb} MB · ${
                      v.cpus
-                   } 核</td>
+                   } 核${v.diskMb ? ` · 硬盘 ${fmtMb(v.diskMb)}` : ''}</td>
                    <td class="sub">${v.remaining > 0 ? `还能用 ${v.remaining} 次` : '已用完'}</td>
                    <td><button class="small" data-copy="${esc(v.code)}">${icon('copy')}复制</button></td>
                  </tr>`
@@ -5834,8 +5836,8 @@ async function viewAdmin() {
                 ? `<td class="sub">${
                     i.scope === 'site' ? `${icon('globe')}仅静态网页 · ` : ''
                   }${i.memory_mb} MB · ${i.cpus} 核 · ${i.ports} 端口${
-                    i.allow_custom_image ? ' · 自定义镜像' : ''
-                  }${i.issued_to ? ' · 注册赠送' : ''}</td>`
+                    i.disk_mb ? ` · 硬盘 ${fmtMb(i.disk_mb)}` : ''
+                  }${i.allow_custom_image ? ' · 自定义镜像' : ''}${i.issued_to ? ' · 注册赠送' : ''}</td>`
                 : i.type === 'points'
                   ? `<td class="sub">${icon('sparkles')}每次兑换 ${i.points} 积分</td>`
                   : '<td class="sub">开通一个账号</td>'
@@ -5905,6 +5907,11 @@ async function viewAdmin() {
                   'puzzle'
                 )}允许用自定义镜像</label></label>
             </div>
+            <label class="field" id="inv-disk"><span>${icon('hard-drive')}硬盘 (MB)</span>
+              <input name="diskMb" type="number" min="128" step="128" placeholder="留空 = ${
+                state.cfg.disk?.quotaMb ?? 2048
+              }MB（跟随全局默认）" />
+              <div class="hint">用这张券建出来的实例，数据卷最多占这么多（128MB - 1TB）。只对建实例有效。</div></label>
             <label class="field" id="inv-life"><span>${icon('hourglass')}实例有效天数（0 = 永久）</span>
               <input name="instanceDays" type="number" min="0" max="3650" value="${
                 state.cfg?.voucherDefaults?.instanceDays ?? 0
@@ -6247,16 +6254,18 @@ function wireAdmin(refresh) {
     const pointsBox = document.getElementById('inv-points');
     const portsBox = document.getElementById('inv-ports');
     const lifeBox = document.getElementById('inv-life');
+    const diskBox = document.getElementById('inv-disk');
     const syncType = () => {
       resBox.style.display = typeSel.value === 'instance' ? '' : 'none';
       pointsBox.style.display = typeSel.value === 'points' ? '' : 'none';
     };
     // 静态网页券没有端口、也不谈自定义镜像，额度直接跳到站点的记账口径；
-    // 它背后没有容器，也就没有到期封存这回事。
+    // 它背后没有容器，也就没有到期封存和硬盘配额这回事。
     const syncScope = () => {
       const siteOnly = scopeSel.value === 'site';
       portsBox.style.display = siteOnly ? 'none' : '';
       lifeBox.style.display = siteOnly ? 'none' : '';
+      diskBox.style.display = siteOnly ? 'none' : '';
       const siteMb = state.cfg?.sites?.memoryMb ?? 32;
       invForm.memoryMb.value = siteOnly ? siteMb : (state.cfg?.voucherDefaults?.memoryMb ?? 1024);
       // min/step are written for containers (64MB floor, 64MB grid). A page has
@@ -6291,6 +6300,7 @@ function wireAdmin(refresh) {
                   memoryMb: Number(fd.memoryMb),
                   cpus: Number(fd.cpus),
                   ports: siteOnly ? 0 : Number(fd.ports),
+                  diskMb: siteOnly ? null : fd.diskMb ? Number(fd.diskMb) : null,
                   allowCustomImage: !siteOnly && !!fd.allowCustomImage,
                   instanceDays: siteOnly ? 0 : Number(fd.instanceDays || 0),
                 }

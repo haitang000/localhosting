@@ -219,6 +219,8 @@ addColumn('users', 'terms_agreed_at', 'TEXT');
 addColumn('users', 'points', 'INTEGER NOT NULL DEFAULT 0');
 // 积分兑换码（invites.type = 'points'）每次兑换给多少分
 addColumn('invites', 'points', 'INTEGER');
+// 资源券自带的数据卷配额（MB）；老券没有这列 = 用全局 DISK_QUOTA_MB
+addColumn('invites', 'disk_mb', 'INTEGER');
 // 这个站点/实例是花积分开的话，花了多少 —— 删除/失败时照这个数退，退完置 NULL 防双退
 addColumn('sites', 'paid_points', 'INTEGER');
 addColumn('instances', 'paid_points', 'INTEGER');

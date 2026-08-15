@@ -178,6 +178,7 @@ router.post('/invites', (req, res) => {
   let memoryMb = null;
   let cpus = null;
   let ports = null;
+  let diskMb = null;
   // 积分兑换码：每次兑换给多少分。今后发福利的默认姿势 —— 用户兑成
   // 积分自己决定花在站点还是实例上。
   let points = null;
@@ -204,6 +205,13 @@ router.post('/invites', (req, res) => {
     if (!Number.isFinite(ports) || ports < 0 || ports > 32)
       return res.status(400).json({ error: '端口额度需在 0 - 32 之间' });
 
+    // 数据卷配额：留空 = 跟随全局 DISK_QUOTA_MB。静态网页券背后没有容器，不谈硬盘。
+    if (!siteOnly && b.diskMb !== undefined && b.diskMb !== null && b.diskMb !== '') {
+      diskMb = Math.round(Number(b.diskMb));
+      if (!Number.isFinite(diskMb) || diskMb < 128 || diskMb > 1048576)
+        return res.status(400).json({ error: '硬盘额度需在 128MB - 1TB 之间（留空 = 跟随全局）' });
+    }
+
     if (!siteOnly && b.instanceDays !== undefined && b.instanceDays !== null && b.instanceDays !== '') {
       const days = Math.round(Number(b.instanceDays));
       if (!Number.isFinite(days) || days < 0 || days > 3650)
@@ -214,8 +222,8 @@ router.post('/invites', (req, res) => {
 
   db.prepare(
     `INSERT INTO invites (code, type, scope, created_by, note, max_uses, uses, memory_mb, cpus, ports,
-       allow_custom_image, instance_days, points, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+       disk_mb, allow_custom_image, instance_days, points, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     code,
     type,
@@ -226,6 +234,7 @@ router.post('/invites', (req, res) => {
     memoryMb,
     cpus,
     ports,
+    diskMb,
     siteOnly ? 0 : b.allowCustomImage ? 1 : 0,
     instanceDays,
     points,
@@ -238,8 +247,8 @@ router.post('/invites', (req, res) => {
     code,
     type === 'instance'
       ? `${siteOnly ? '静态网页券' : '资源券'} ${memoryMb}MB/${cpus}核/${ports}端口${
-          instanceDays ? `/有效 ${instanceDays} 天` : ''
-        } ×${maxUses}`
+          diskMb ? `/硬盘 ${diskMb}MB` : ''
+        }${instanceDays ? `/有效 ${instanceDays} 天` : ''} ×${maxUses}`
       : type === 'points'
         ? `积分兑换码 ${points} 分 ×${maxUses}`
         : `注册码 ×${maxUses}`
@@ -298,6 +307,14 @@ router.patch('/invites/:code', (req, res) => {
           ? Math.round(Number(b.instanceDays))
           : null,
     allow_custom_image: siteOnly ? 0 : b.allowCustomImage === undefined ? undefined : b.allowCustomImage ? 1 : 0,
+    // 数据卷配额：空 / 0 = 清掉，回退全局 DISK_QUOTA_MB
+    disk_mb: siteOnly
+      ? null
+      : b.diskMb === undefined
+        ? undefined
+        : Number.isFinite(Number(b.diskMb)) && Number(b.diskMb) > 0
+          ? Math.round(Math.min(1048576, Math.max(128, Number(b.diskMb))))
+          : null,
     // 积分兑换码的面额；只对 type='points' 有意义，其它类型不碰
     points:
       inv.type !== 'points' || b.points === undefined

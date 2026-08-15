@@ -68,6 +68,8 @@ export function publicInvite(invite) {
     memoryMb: invite.memory_mb,
     cpus: invite.cpus,
     ports: invite.ports,
+    // 数据卷配额（MB）；null = 跟随全局 DISK_QUOTA_MB
+    diskMb: invite.disk_mb ?? null,
     allowCustomImage: !!invite.allow_custom_image,
     // 用这张券建出来的实例能活多少天（null = 永久）。跟 expiresAt 不是一回事：
     // expiresAt 是券自己什么时候作废。

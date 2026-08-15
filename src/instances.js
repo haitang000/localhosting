@@ -158,8 +158,8 @@ export async function createInstance(user, body) {
   const cpus = invite ? invite.cpus : plan.cpus;
   const maxPorts = invite ? invite.ports : plan.ports;
   // 硬盘配额：积分路径跟着规格走（套餐/自定义都带 diskMb）；
-  // 券上没有磁盘字段，回退到全局 DISK_QUOTA_MB。
-  const diskMb = invite ? config.diskQuotaMb : plan.diskMb;
+  // 资源券现在可以自带 disk_mb（发券时填），老券没有这列回退全局 DISK_QUOTA_MB。
+  const diskMb = invite ? (invite.disk_mb ?? config.diskQuotaMb) : plan.diskMb;
   if (!Number.isFinite(memoryMb) || memoryMb < 64) throw bad('这张资源券的内存额度无效，请联系管理员');
   if (!Number.isFinite(cpus) || cpus < 0.1) throw bad('这张资源券的 CPU 额度无效，请联系管理员');
   if (!Number.isInteger(diskMb) || diskMb < 128) throw bad('磁盘配额无效，请联系管理员');
