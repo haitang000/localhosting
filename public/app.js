@@ -3135,6 +3135,8 @@ async function viewInstance(id) {
 
     /* 容器没在跑的时候，控制台是一块什么都做不了的黑框：接不上、也不会说为什么。
        给一条明确的出路，比让人对着「未连接」猜要好。 */
+    const isMc =
+      i.templateId === 'minecraft' || i.templateId === 'minecraft-bedrock' || /itzg\/minecraft/i.test(i.image || '');
     const consoleTab =
       i.status === 'running' || i.status === 'sleeping'
         ? `<div class="card term-card" id="term-card">
@@ -3164,6 +3166,16 @@ async function viewInstance(id) {
             )}重启会话</button>
           </div>
         </div>
+        ${
+          isMc
+            ? `<div class="row mc-cmd">
+                <span class="mc-cmd-ico" aria-hidden="true">${icon('terminal')}</span>
+                <input id="mc-cmd-in" class="mono" placeholder="游戏命令（经 RCON 发到服务器控制台），如 give @a diamond 1"
+                       autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+                <button class="primary small" id="mc-cmd-send">发送</button>
+              </div>`
+            : ''
+        }
         <div class="term-body">
           <pre class="term" id="term" tabindex="0" role="region" aria-label="容器控制台输出"></pre>
           <button class="term-jump" id="term-jump" hidden>${icon('chevrons-down')}回到底部</button>
@@ -3459,8 +3471,8 @@ async function viewInstance(id) {
         vals.length < 2
           ? '<span class="spark-ghost">…</span>'
           : `<svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
-              <polyline points="${sparkPts(vals, max).join(' ')}" fill="none" stroke="${stroke}" stroke-width="1.5"
-                stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+              <polyline points="${sparkPts(vals, max).join(' ')}" fill="none" stroke="${stroke}" stroke-width="2"
+                vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
       const chartsHtml = () => {
         const rxMax = Math.max(...hist.rx, ...hist.tx, 1);
         return `<div class="stat-chart">
@@ -3476,8 +3488,8 @@ async function viewInstance(id) {
               hist.rx[hist.rx.length - 1] ?? 0
             )}/s 入 · ${bytes(hist.tx[hist.tx.length - 1] ?? 0)}/s 出</span></div>
             <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
-              <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-              <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="#06b6d4" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
             </svg>
             <div class="lgd"><span class="lgd-dot" style="background:#06b6d4"></span>入站<span class="lgd-dot" style="background:#f59e0b"></span>出站</div>
           </div>`;
@@ -3517,13 +3529,17 @@ async function viewInstance(id) {
           hist.tx.push(lastNet ? Math.max(0, (stats.netTx - lastNet.tx) / dt) : 0);
           lastNet = { t, rx: stats.netRx, tx: stats.netTx };
           for (const k of Object.keys(hist)) if (hist[k].length > MAX_PTS) hist[k].shift();
-          box.innerHTML = `<div class="stat"><b>${stats.cpuPercent}%</b><span>${icon('cpu')}CPU</span></div>
-               <div class="stat"><b>${bytes(stats.memUsage)}</b><span>${icon('memory-stick')}内存 / ${bytes(
+          const high = (pct) => pct >= 85;
+          const netRate = (arr) => arr[arr.length - 1] ?? 0;
+          const highNet = netRate(hist.rx) >= 1048576 || netRate(hist.tx) >= 1048576; // ≥ 1 MB/s
+          const cls = (on) => ` class="stat${on ? ' high' : ''}"`;
+          box.innerHTML = `<div${cls(high(stats.cpuPercent))} title="${high(stats.cpuPercent) ? 'CPU 使用率较高' : ''}"><b>${stats.cpuPercent}%</b><span>${icon('cpu')}CPU</span></div>
+               <div${cls(high(stats.memPercent))} title="${high(stats.memPercent) ? '内存占用较高' : ''}"><b>${bytes(stats.memUsage)}</b><span>${icon('memory-stick')}内存 / ${bytes(
                  stats.memLimit
                )} (${stats.memPercent}%)</span></div>
-               <div class="stat"><b>${bytes(stats.netRx)}</b>
+               <div${cls(highNet)} title="${highNet ? '当前带宽较高' : ''}"><b>${bytes(stats.netRx)}</b>
                  <span>${icon('arrow-down-to-line')}入站流量</span></div>
-               <div class="stat"><b>${bytes(stats.netTx)}</b>
+               <div${cls(highNet)} title="${highNet ? '当前带宽较高' : ''}"><b>${bytes(stats.netTx)}</b>
                  <span>${icon('arrow-up-from-line')}出站流量</span></div>`;
           if (charts) charts.innerHTML = chartsHtml();
         } catch {
@@ -4220,6 +4236,34 @@ function wireConsole(i) {
       jump.hidden = atBottom;
     },
   });
+
+  /* ---- Minecraft 游戏命令 ----
+     MC 服务端只从自己的 stdin 读命令，docker exec 的 shell 敲不进去；
+     这条命令条走 RCON（itzg 镜像默认开启），结果直接打进终端输出区。 */
+  const mcIn = document.getElementById('mc-cmd-in');
+  const mcSend = document.getElementById('mc-cmd-send');
+  if (mcIn && mcSend) {
+    const sendMc = async () => {
+      const cmd = mcIn.value.trim();
+      if (!cmd) return;
+      mcSend.disabled = true;
+      term.write(`\r\n\x1b[90m> ${cmd}\x1b[0m\r\n`);
+      try {
+        const r = await api(`/instances/${i.id}/minecraft/command`, { method: 'POST', body: { command: cmd } });
+        term.write(`${(r.output || '').trim() || '(服务器无输出)'}\r\n`);
+        term.setStick(true);
+      } catch (err) {
+        term.write(`\x1b[31m${err.message}\x1b[0m\r\n`);
+      } finally {
+        mcSend.disabled = false;
+        mcIn.focus();
+      }
+    };
+    mcSend.onclick = sendMc;
+    mcIn.onkeydown = (e) => {
+      if (e.key === 'Enter') sendMc();
+    };
+  }
 
   /* 命令历史按实例存，跨刷新还在 —— 终端的历史本来就是这个预期，
      每次回到这一页都从零开始翻不动上一条实在别扭。 */

@@ -240,8 +240,11 @@ export async function execStream(containerId, cmd, { tty = true, cols = 80, rows
  *
  * stdout is capped: a command that decides to print a gigabyte should not take
  * the panel down with it. Everything past the cap is dropped and flagged.
+ *
+ * timeoutMs 是软超时：到期直接把流掐掉、照常返回已收的输出（rcon-cli 偶尔会
+ * 因为服务器没响应而挂住，不能让它把面板的请求一起拖死）。
  */
-export async function execCollect(containerId, cmd, { limitBytes = 1 << 20, env } = {}) {
+export async function execCollect(containerId, cmd, { limitBytes = 1 << 20, env, timeoutMs = 0 } = {}) {
   const exec = await docker.getContainer(containerId).exec({
     Cmd: cmd,
     Env: env && env.length ? env : undefined,
@@ -254,6 +257,7 @@ export async function execCollect(containerId, cmd, { limitBytes = 1 << 20, env 
   const err = [];
   let outLen = 0;
   let errLen = 0;
+  let timedOut = false;
 
   await new Promise((resolve, reject) => {
     const stdout = new PassThrough();
@@ -270,6 +274,18 @@ export async function execCollect(containerId, cmd, { limitBytes = 1 << 20, env 
     stream.on('end', resolve);
     stream.on('close', resolve);
     stream.on('error', reject);
+    const timer = timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          try {
+            stream.destroy();
+          } catch {
+            /* ignore */
+          }
+          resolve();
+        }, timeoutMs)
+      : null;
+    if (timer) stream.on('close', () => clearTimeout(timer));
   });
 
   const info = await exec.inspect().catch(() => ({ ExitCode: null }));
@@ -278,6 +294,7 @@ export async function execCollect(containerId, cmd, { limitBytes = 1 << 20, env 
     stderr: Buffer.concat(err).toString('utf8').trim(),
     exitCode: info.ExitCode,
     truncated: outLen > limitBytes,
+    timedOut,
   };
 }
 

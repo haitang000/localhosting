@@ -1616,6 +1616,33 @@ pre.term .tl {
   gap: 10px;
   margin-bottom: 10px;
 }
+/* Minecraft 游戏命令条：RCON 发到服务器控制台，不是 shell 命令。 */
+.mc-cmd {
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.mc-cmd .mc-cmd-ico {
+  display: inline-flex;
+  color: var(--default-500);
+}
+.mc-cmd .mc-cmd-ico svg {
+  width: 16px;
+  height: 16px;
+}
+.mc-cmd input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--content2);
+  border: 1px solid var(--divider);
+  color: var(--foreground);
+}
+.mc-cmd input:focus {
+  outline: 2px solid var(--focus);
+  border-color: transparent;
+}
 .term-tools {
   gap: 6px;
 }
@@ -2511,6 +2538,21 @@ dialog.fm-edit {
 .stat span {
   font-size: 12.5px;
   color: var(--default-500);
+}
+
+/* 运行状态面板的指标块：常态加一点内边距保持圆角矩形占位，指标偏高时
+   整块染成红色，一眼扫到是哪一项在冒尖。 */
+#stats .stat {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  transition: background 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+#stats .stat.high {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 35%, transparent);
+}
+#stats .stat.high b {
+  color: var(--danger);
 }
 
 /* ---------- 运行状态迷你走势图 ---------- */

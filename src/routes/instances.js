@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import * as dk from '../docker.js';
 import * as svc from '../instances.js';
 import * as term from '../console.js';
+import * as sleeper from '../sleeper.js';
 import { history, subscribe } from '../events.js';
 
 export const router = Router();
@@ -135,6 +136,56 @@ router.post('/:id/console/resize', async (req, res) => {
   const sess = term.get(req.body?.sid, row, req.user);
   await term.resize(sess, req.body?.cols, req.body?.rows);
   res.json({ ok: true });
+});
+
+/* ---- Minecraft 游戏命令 ----
+   MC 服务端以 PID 1 运行、命令只从它自己的 stdin 读 —— docker exec 开个
+   shell 敲进去没用。itzg 镜像默认开着 RCON（端口 25575），但密码是运行时
+   写进 /data/server.properties 的、不在容器环境变量里，所以先读出来再交给
+   rcon-cli —— 两步都走 argv，用户的命令不会被 shell 解释。 */
+router.post('/:id/minecraft/command', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  if (!/itzg\/minecraft/i.test(row.image || '')) {
+    return res.status(400).json({ error: '这个实例不是 Minecraft 服务器，没有游戏命令可发' });
+  }
+  if (!row.container_id) return res.status(400).json({ error: '容器还未创建完成' });
+  let state = await dk.containerState(row.container_id);
+  if (!state.running && row.status === 'sleeping') {
+    await sleeper.wake(row.id, '执行游戏命令');
+    state = await dk.containerState(row.container_id);
+  }
+  if (!state.running) return res.status(400).json({ error: '容器未在运行，先启动它再执行命令' });
+
+  const cmd = String(req.body?.command ?? '').trim().replace(/[\r\n\0]/g, ' ');
+  if (!cmd || cmd.length > 200) {
+    return res.status(400).json({ error: '命令不能为空且不超过 200 字' });
+  }
+
+  const propsPath = JSON.parse(row.volume_paths_json || '[]')[0] || '/data';
+  const props = await dk.execCollect(
+    row.container_id,
+    ['sh', '-c', `grep -E '^rcon\\.(password|port)=' "${propsPath}/server.properties" 2>/dev/null || true`],
+    { timeoutMs: 3000 }
+  );
+  const kv = {};
+  for (const line of props.stdout.split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq > 0) kv[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  const password = kv['rcon.password'] ?? '';
+  const port = kv['rcon.port'] || '25575';
+  if (!password) {
+    return res.status(503).json({ error: 'RCON 还没就绪（服务器可能仍在启动），请稍后再试' });
+  }
+
+  const r = await dk.execCollect(
+    row.container_id,
+    ['rcon-cli', '--host', '127.0.0.1', '--port', port, '--password', password, cmd],
+    { timeoutMs: 8000 }
+  );
+  const output = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
+  if (r.timedOut) return res.status(504).json({ error: 'RCON 无响应（服务器可能还没起来），请稍后再试' });
+  res.json({ output: output || '(服务器无输出)', exitCode: r.exitCode });
 });
 
 
