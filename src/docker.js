@@ -113,23 +113,38 @@ export async function createContainer(spec) {
   return container;
 }
 
-export async function containerState(containerId) {
-  if (!containerId) return { status: 'missing' };
-  try {
-    const info = await docker.getContainer(containerId).inspect();
-    return {
-      status: info.State.Status, // created | running | paused | restarting | removing | exited | dead
-      running: info.State.Running,
-      startedAt: info.State.StartedAt,
-      finishedAt: info.State.FinishedAt,
-      exitCode: info.State.ExitCode,
-      health: info.State.Health?.Status || null,
-      restartCount: info.RestartCount,
-    };
-  } catch (err) {
-    if (err.statusCode === 404) return { status: 'missing' };
-    throw err;
-  }
+/* container inspect 是轮询热路径（概览每 6 秒、每个实例一次），多个标签页同时开着
+   时会对 Docker daemon 重复轰炸。加一层 1.5 秒的 TTL 缓存 + 并发去重：
+   ——同一实例在同一窗口内的并发请求共享同一个 in-flight promise；
+   ——重复请求直接命中缓存。轮询周期本身就 >1.5s，展示数据的陈旧程度不受影响。 */
+const stateCache = new Map(); // containerId -> { promise, at }
+const STATE_CACHE_TTL = 1500;
+
+export function containerState(containerId) {
+  if (!containerId) return Promise.resolve({ status: 'missing' });
+  const hit = stateCache.get(containerId);
+  if (hit && Date.now() - hit.at < STATE_CACHE_TTL) return hit.promise;
+  const promise = (async () => {
+    try {
+      const info = await docker.getContainer(containerId).inspect();
+      return {
+        status: info.State.Status, // created | running | paused | restarting | removing | exited | dead
+        running: info.State.Running,
+        startedAt: info.State.StartedAt,
+        finishedAt: info.State.FinishedAt,
+        exitCode: info.State.ExitCode,
+        health: info.State.Health?.Status || null,
+        restartCount: info.RestartCount,
+      };
+    } catch (err) {
+      // 失败不缓存：下一次调用重试，别让一次抖动把状态钉住 1.5 秒。
+      stateCache.delete(containerId);
+      if (err.statusCode === 404) return { status: 'missing' };
+      throw err;
+    }
+  })();
+  stateCache.set(containerId, { promise, at: Date.now() });
+  return promise;
 }
 
 const act = (fn) => async (containerId, opts) => {
@@ -139,6 +154,9 @@ const act = (fn) => async (containerId, opts) => {
   } catch (err) {
     if (err.statusCode === 304) return null; // already in requested state
     throw err;
+  } finally {
+    // 操作会立刻改变容器状态，把旧缓存清掉，下一个请求拿到的就是新状态。
+    stateCache.delete(containerId);
   }
 };
 

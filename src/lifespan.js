@@ -4,6 +4,7 @@ import * as dk from './docker.js';
 import { emit } from './events.js';
 import * as sleeper from './sleeper.js';
 import * as term from './console.js';
+import * as cftunnel from './cftunnel.js';
 import { releasePorts } from './ports.js';
 
 /**
@@ -66,6 +67,11 @@ export async function archive(row, reason = '有效期已到') {
   term.closeForInstance(row.id, '实例已封存');
   // release() drops the parked listeners too, so nothing can wake it any more.
   await sleeper.release(row.id).catch(() => {});
+  // 自动穿透：停掉隧道进程（隧道和域名保留，续期后 ensureRunning 拉回来）
+  if (row.tunnel_json) {
+    cftunnel.stop(row);
+    emit(row.id, 'Cloudflare 隧道进程已停止（域名保留，续期后自动恢复）', 'log');
+  }
   if (row.container_id) {
     try {
       await dk.stopContainer(row.container_id);
@@ -92,6 +98,14 @@ export async function archive(row, reason = '有效期已到') {
  * Best-effort on every step — the row gets deleted no matter what.
  */
 export async function purge(row) {
+  // 自动穿透：隧道、DNS 记录、凭据文件一起删，域名腾出来
+  if (row.tunnel_json) {
+    try {
+      await cftunnel.destroy(row);
+    } catch (err) {
+      emit(row.id, `清理 Cloudflare 隧道失败：${err.message}`, 'error');
+    }
+  }
   if (row.container_id) {
     try {
       await dk.removeContainer(row.container_id);

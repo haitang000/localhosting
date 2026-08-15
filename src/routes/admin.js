@@ -12,6 +12,7 @@ import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
 import { panelName, panelColor, setSetting, captchaMode } from '../settings.js';
+import * as cftunnel from '../cftunnel.js';
 
 export const router = Router();
 router.use(requireAdmin);
@@ -347,7 +348,10 @@ router.get('/instances', async (req, res) => {
 // ---------- approval queue ----------
 router.get('/pending', async (req, res) => {
   const rows = db.prepare("SELECT * FROM instances WHERE status = 'pending' ORDER BY created_at").all();
-  const pending = await Promise.all(rows.map((r) => svc.serialize(r, { withState: false })));
+  const owners = svc.ownersMap(rows.map((r) => r.user_id));
+  const pending = await Promise.all(
+    rows.map((r) => svc.serialize(r, { withState: false, owner: owners.get(r.user_id) }))
+  );
   res.json({
     pending,
     // What the admin should point their tunnel at, and the address the panel
@@ -356,6 +360,8 @@ router.get('/pending', async (req, res) => {
       bindAddress: config.bindAddress,
       publicHost: config.publicHost || null,
       portPool: `${config.portPoolStart}-${config.portPoolEnd}`,
+      // 自动穿透可用时前端显示勾选框（只暴露域名，不含任何凭据）
+      cfTunnel: cftunnel.enabled() ? { domain: config.cfTunnelDomain } : null,
     },
   });
 });
@@ -365,6 +371,7 @@ router.post('/instances/:id/approve', async (req, res) => {
   await svc.approveInstance(row, req.user, {
     addresses: req.body?.addresses || {},
     note: req.body?.note,
+    autoTunnel: req.body?.autoTunnel === true,
   });
   res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
 });

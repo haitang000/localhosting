@@ -103,6 +103,22 @@ export const config = {
   // 这个走，而不是跟着端口池的 PUBLIC_HOST。留空时按 PUBLIC_HOST + 面板端口猜。
   panelPublicUrl: (process.env.PANEL_PUBLIC_URL || '').replace(/\/+$/, ''),
 
+  // --- Cloudflare Tunnel 自动穿透 ---
+  // 管理员在审批 / 新建实例时勾选「自动穿透」后，面板自己走 Cloudflare API
+  // 建命名隧道、绑 CF_TUNNEL_DOMAIN 下的子域名、拉起 cloudflared 进程，
+  // 并把对外地址自动填进实例。需要 CF 侧有一个 Zone:DNS:Edit + Cloudflare
+  // Tunnel:Edit 的 API Token。
+  cfTunnelEnabled: bool(process.env.CF_TUNNEL_ENABLED, false),
+  cfApiToken: process.env.CF_API_TOKEN || '',
+  cfAccountId: process.env.CF_ACCOUNT_ID || '',
+  cfZoneId: process.env.CF_ZONE_ID || '',
+  // 子域名都挂在它下面，例 apps.example.com → myapp-abc123.apps.example.com
+  cfTunnelDomain: (process.env.CF_TUNNEL_DOMAIN || '').trim(),
+  // 隧道名前缀；凭据和 ingress 配置存在 CF_TUNNEL_CRED_DIR
+  cfTunnelPrefix: process.env.CF_TUNNEL_PREFIX || 'lh',
+  cfTunnelBin: process.env.CF_TUNNEL_BIN || 'cloudflared',
+  cfTunnelCredDir: process.env.CF_TUNNEL_CRED_DIR || path.join(dataDir, 'cloudflared'),
+
   // --- Per-account cap. Memory / CPU / ports come from the resource voucher
   //     spent at creation time, so only the instance count is capped here. ---
   defaultMaxInstances: num(process.env.DEFAULT_MAX_INSTANCES, 5),

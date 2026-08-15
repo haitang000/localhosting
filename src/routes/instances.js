@@ -48,7 +48,7 @@ router.post('/:id/renew', async (req, res) => {
   if (!Number.isInteger(days) || days <= 0 || days > 3650) {
     return res.status(400).json({ error: '续期天数需为 1 - 3650 的整数' });
   }
-  const fresh = svc.renewInstance(row, req.user, days);
+  const fresh = await svc.renewInstance(row, req.user, days);
   res.json({ instance: await svc.serialize(fresh) });
 });
 

@@ -2122,6 +2122,7 @@ function viewNew() {
     cmdText: '',
     sleepEnabled: null, // null = follow the panel default
     idleMinutes: null,
+    autoTunnel: false, // 管理员专用：放行时自动建 Cloudflare 隧道
     note: '',
   };
   let step = 0;
@@ -2721,6 +2722,7 @@ function viewNew() {
                 <input name="cmdText" placeholder="sleep infinity" value="${esc(draft.cmdText)}" /></label>`
         }
         ${sleepFieldHtml(t, draft)}
+        ${cfTunnelFieldHtml(t)}
         ${foot()}
       </form>`;
 
@@ -2744,6 +2746,9 @@ function viewNew() {
       if (state.cfg?.sleep?.enabled && form.sleepEnabled) {
         draft.sleepEnabled = form.sleepEnabled.checked;
         draft.idleMinutes = Number(fd.get('idleMinutes')) || null;
+      }
+      if (state.cfg?.cfTunnel && state.user.role === 'admin' && form.autoTunnel) {
+        draft.autoTunnel = form.autoTunnel.checked;
       }
       go(3);
     };
@@ -2801,6 +2806,14 @@ function viewNew() {
         draft.sleepEnabled ? `空闲 ${draft.idleMinutes ?? state.cfg.sleep.idleMinutes} 分钟后休眠` : '不休眠',
       ]);
     }
+    if (state.cfg?.cfTunnel && state.user.role === 'admin') {
+      rows.push([
+        `${icon('cloud')}自动穿透`,
+        draft.autoTunnel
+          ? `自动建 Cloudflare 隧道，域名 https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}`
+          : '不自动（需手动配穿透）',
+      ]);
+    }
 
     slot.innerHTML = `
       <form class="card nv-card" id="nv-form">
@@ -2835,6 +2848,9 @@ function viewNew() {
         if (state.cfg?.sleep?.enabled && draft.sleepEnabled !== null) {
           body.sleep = { enabled: draft.sleepEnabled, idleMinutes: draft.idleMinutes || undefined };
         }
+        if (state.cfg?.cfTunnel && state.user.role === 'admin') {
+          body.autoTunnel = draft.autoTunnel ? true : undefined;
+        }
         if (t) {
           for (const f of t.env) if (draft.env[f.key] !== undefined) body.env[f.key] = draft.env[f.key];
         } else {
@@ -2863,7 +2879,9 @@ function viewNew() {
         toast(
           status === 'pending'
             ? '申请已提交，等管理员配置好内网穿透后就会自动创建'
-            : '已跳过审批，正在创建容器；穿透配好后到「访问地址」改成实际地址',
+            : draft.autoTunnel
+              ? '正在创建容器并自动配置 Cloudflare 隧道，域名就绪后即可访问'
+              : '已跳过审批，正在创建容器；穿透配好后到「访问地址」改成实际地址',
           'ok'
         );
         location.hash = `#/i/${id}`;
@@ -2905,6 +2923,28 @@ function sleepFieldHtml(t, saved = {}) {
       <div class="hint">${
         blocked ||
         '休眠期间不占内存和 CPU；面板替它守着端口，第一个连上来的人会等几秒冷启动，然后照常访问。仅支持 TCP。'
+      }</div>
+    </div>`;
+}
+
+/** 管理员专属：新建实例时勾选「自动穿透」，放行（跳过审批）时自动建隧道。 */
+function cfTunnelFieldHtml(t) {
+  const cf = state.cfg?.cfTunnel;
+  if (!cf || state.user.role !== 'admin') return '';
+  const none = t ? t.ports.length === 0 : false;
+  const udpOnly = t ? t.ports.length > 0 && t.ports.every((p) => p.protocol === 'udp') : false;
+  const blocked = none || udpOnly;
+  return `<div class="field">
+      <label class="row" style="gap:8px">
+        <input type="checkbox" name="autoTunnel" style="width:auto" ${blocked ? 'disabled' : ''} />
+        <span>${icon('cloud')}自动穿透 —— 自动建 Cloudflare 隧道，免手动配置</span>
+      </label>
+      <div class="hint">${
+        blocked
+          ? udpOnly
+            ? '这个模板全是 UDP 端口，Cloudflare 隧道无法承载 UDP，不能自动穿透。'
+            : '这个模板不暴露端口，不需要穿透。'
+          : `放行后自动分配 <code>https://&lt;实例名&gt;.${esc(cf.domain)}</code> 域名并填好对外地址，无需手动配穿透。仅 TCP 端口有效；UDP 端口仍要手动转发。`
       }</div>
     </div>`;
 }
@@ -3051,6 +3091,17 @@ async function viewInstance(id) {
               )
               .join('') || '<span class="sub">该实例没有暴露端口</span>'
           }</div>
+          ${
+            i.tunnel
+              ? `<div class="hint" style="margin-top:8px">${icon('cloud')}由 Cloudflare 隧道自动提供：
+                   <code>${esc(i.tunnel.hostnames.join('</code>、<code>'))}</code>
+                   <span class="badge ${i.tunnel.running ? 'running' : 'warning'}">${i.tunnel.running ? '隧道运行中' : '隧道未运行'}</span>${
+                     i.tunnel.output?.length
+                       ? `<span class="sub" style="display:block;margin-top:6px">${esc(i.tunnel.output.at(-1) || '')}</span>`
+                       : ''
+                   }</div>`
+              : ''
+          }
           ${
             // Only a port still on the fallback is actually showing localhost —
             // once every address has been set by hand, PUBLIC_HOST is moot.
@@ -5881,6 +5932,18 @@ function pendingCard(i) {
       <button class="primary" data-approve="${esc(i.id)}">${icon('check-check')}配好了，放行创建</button>
       <button class="danger" data-reject="${esc(i.id)}" data-name="${esc(i.name)}">${icon('ban')}驳回</button>
     </div>
+    ${
+      state.cfg?.cfTunnel
+        ? `<label class="row" style="gap:8px;margin-top:12px;align-items:flex-start">
+             <input type="checkbox" id="autotunnel-${esc(i.id)}" style="width:auto;margin-top:3px" ${
+             i.ports.every((p) => p.protocol === 'udp') ? 'disabled' : ''
+           } />
+             <span>${icon('cloud')}自动创建 Cloudflare Tunnel —— 不手动配穿透，自动分配
+               <code>https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}</code> 并填好地址
+               ${i.ports.some((p) => p.protocol === 'udp') ? '（UDP 端口无法走隧道）' : ''}</span>
+           </label>`
+        : ''
+    }
   </div>`;
 }
 
@@ -5907,6 +5970,12 @@ async function viewAdmin() {
              端口池 <code>${esc(hint.portPool)}</code>。
              把下面列出的主机端口转发出去之后，填上用户实际要访问的地址再放行；留空则显示
              <code>${esc(hint.publicHost || 'localhost')}:主机端口</code>。
+             ${
+               hint.cfTunnel
+                 ? `也可以勾选每张卡片上的「自动创建 Cloudflare Tunnel」：面板自动建隧道、分配
+                   <code>https://&lt;实例名&gt;.${esc(hint.cfTunnel.domain)}</code> 域名并填好地址，什么都不用配。`
+                 : ''
+             }
            </div>` +
           pending.map(pendingCard).join('')
         : `<div class="card empty"><div class="big">${icon(
@@ -6413,10 +6482,14 @@ function wireAdmin(refresh) {
         card.querySelectorAll('[data-port]').forEach((inp) => {
           if (inp.value.trim()) addresses[inp.dataset.port] = inp.value.trim();
         });
+        const autoTunnel = card.querySelector(`#autotunnel-${b.dataset.approve}`)?.checked ?? false;
         b.disabled = true;
         try {
-          await api(`/admin/instances/${b.dataset.approve}/approve`, { method: 'POST', body: { addresses } });
-          toast('已放行，正在创建容器', 'ok');
+          await api(`/admin/instances/${b.dataset.approve}/approve`, {
+            method: 'POST',
+            body: { addresses, autoTunnel },
+          });
+          toast(autoTunnel ? '已放行：正在创建容器并配置 Cloudflare 隧道' : '已放行，正在创建容器', 'ok');
           await refresh();
         } catch (e) {
           toast(e.message, 'err');
@@ -6947,15 +7020,13 @@ function route() {
 
 async function boot() {
   try {
-    // Config first: the onboarding copy branches on whether sites and idle
-    // sleep are switched on at all.
-    const [cfg, tpl] = await Promise.all([api('/config'), api('/templates')]);
+    // /auth/me 不依赖 config/templates，三个请求一起发，首屏少两个往返。
+    const [cfg, tpl, me] = await Promise.all([api('/config'), api('/templates'), syncMe()]);
     state.cfg = cfg;
     state.templates = tpl.templates;
     // 面板名称是管理后台可改的，浏览器标签跟着它走。
     document.title = `${cfg.panelName || 'localhosting'} · 容器面板`;
     applyTheme(cfg.panelColor);
-    const me = await syncMe();
     // syncMe 已经把停用页画出来了，这里不能再往下走去渲染面板。
     if (me.disabled) return;
     state.user = me.user ?? null;

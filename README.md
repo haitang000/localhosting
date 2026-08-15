@@ -539,6 +539,40 @@ UDP 服务（比如某些游戏服）需要在 frp 里再加一段 `type = "udp"
 指向 `localhost:该端口`，再把分到的域名填进对外地址栏；
 **ngrok / natapp** 免费版通常只给一个随机端口，只适合自己试玩。
 
+### 自动穿透：面板替你建 Cloudflare 隧道
+
+不想每次手动配 frp / cloudflared，可以让面板全程代劳。前提：
+
+- 机器上装了 `cloudflared`（在 PATH 里，`CF_TUNNEL_BIN` 可指定路径）
+- 一个 Cloudflare API Token，权限含 **Zone:DNS:Edit** 和 **Cloudflare Tunnel:Edit**
+  （作用于目标 Zone 和 Account）
+- `.env` 里填上 `CF_TUNNEL_ENABLED=true`、`CF_API_TOKEN`、`CF_ACCOUNT_ID`、
+  `CF_ZONE_ID`、`CF_TUNNEL_DOMAIN`（子域名挂在它下面，比如 `apps.example.com`）
+
+开起来之后：
+
+- **审批时**：待审批卡片上多一个「自动创建 Cloudflare Tunnel」勾选框。勾上放行，
+  面板自动建命名隧道、给实例的每个 TCP 端口分配
+  `https://<实例名>-<短ID>.apps.example.com` 域名（CNAME → 隧道的
+  `*.cfargotunnel.com`）、拉起 `cloudflared tunnel run` 进程，并把域名自动填进
+  对外地址 —— 什么都不用配。
+- **管理员自己建实例**：新建实例第 3 步多一个「自动穿透」勾选，同样效果。
+- **生命周期跟着实例走**：删除实例或宽限期届满清理时，隧道、DNS 记录、凭据
+  文件一起删掉，域名腾出来；到期封存时只停进程（域名保留，积分续期后立刻
+  恢复访问）；面板重启会按数据库记录恢复进程，进程意外退出还有 60 秒看护
+  循环自动拉起。
+- 凭据只存在于 `.env` 和 `data/cloudflared/`，任何接口都不会返回 token。
+
+注意几个边界：
+
+- **只对 TCP 端口有效**，UDP 端口（游戏服之类）不走隧道，审批时勾选框上会注明。
+  纯 HTTP(S) 服务最合适，浏览器直接访问域名即可；非 HTTP 的 TCP 服务域名
+  虽然分配了，但客户端要用 `cloudflared access tcp` 才能连。
+- **自动隧道的实例不支持闲时休眠**：访问全走 cloudflared，面板的端口监听
+  看不到连接，睡下去就没人能叫醒。放行时面板会自动把休眠关掉。
+- 域名不是固定绑给实例的：分配时按 `实例名-实例ID前6位` 取名，被占用就自动
+  试 `-2` ~ `-9` 后缀，仍被占用才报错。
+
 ---
 
 ## 手机上也能用

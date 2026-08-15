@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import express from 'express';
+import compression from 'compression';
 import { config, ROOT, panelBaseUrl, panelAddressUnset } from './config.js';
+import { preloadStaticAssets, servePrecompressed } from './static-assets.js';
 import { attachUser, bootstrapAdmin } from './auth.js';
 import { publicTemplates } from './templates.js';
 import { poolStats } from './ports.js';
@@ -11,6 +13,7 @@ import * as dk from './docker.js';
 import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
+import * as cftunnel from './cftunnel.js';
 import { sweepOrphanDirs } from './sites.js';
 import { TERMS_VERSION, TERMS_UPDATED, TERMS_HTML } from './terms.js';
 import * as announcements from './announcements.js';
@@ -29,7 +32,10 @@ seedSettings();
 const app = express();
 if (config.trustProxy) app.set('trust proxy', 1);
 app.disable('x-powered-by');
-app.use(attachUser);
+
+// 给所有可压缩的响应上 brotli/gzip。SSE 流自带 Cache-Control: no-transform，
+// compression 会自动跳过；预压缩的静态资源带 Content-Encoding，也不会被二次压缩。
+app.use(compression({ threshold: 1024 }));
 
 // ── 安全响应头 ──
 app.use((req, res, next) => {
@@ -60,6 +66,7 @@ if (config.sitesEnabled) {
   // Dropped files arrive base64'd inside the JSON body, hence the own limit.
   app.use(
     '/api/sites',
+    attachUser,
     express.json({ limit: `${Math.ceil((config.siteMaxBytes * 1.4) / 1048576) + 1}mb` }),
     siteRoutes
   );
@@ -69,11 +76,11 @@ if (config.sitesEnabled) {
 // bring their own limit and therefore have to be mounted ahead of the small
 // global parser. Only /api/instances/:id/files* matches here; everything else
 // falls through to the routers below.
-if (config.filesEnabled) app.use('/api/instances', fileRoutes);
+if (config.filesEnabled) app.use('/api/instances', attachUser, fileRoutes);
 
 // Announcement image uploads do the same trick (base64 in JSON), so they get
 // their own body limit too — mounted ahead of the 256kb global parser.
-app.use('/api/admin/announcement-images', announcementImageRouter);
+app.use('/api/admin/announcement-images', attachUser, announcementImageRouter);
 
 app.use(express.json({ limit: '256kb' }));
 
@@ -151,6 +158,8 @@ app.get('/api/config', (_req, res) => {
       defaultOn: config.idleSleepDefault,
       idleMinutes: config.idleMinutes,
     },
+    // 自动穿透可用性（只给域名，凭据永不出服务端）
+    cfTunnel: cftunnel.enabled() ? { domain: config.cfTunnelDomain } : null,
     disk: {
       guardEnabled: config.diskGuardEnabled,
       quotaMb: config.diskQuotaMb,
@@ -184,10 +193,12 @@ app.get('/api/announcements', (_req, res) => {
   res.json({ announcements: announcements.listActive() });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/instances', instanceRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/checkin', checkinRoutes);
+// 会话鉴权只挂在需要它的 API 路由上：静态资源、/s/ 站点页、公告图片这些
+// 不带 cookie 的请求不再查一次 SQLite，登录用户的每个页面加载能省好几笔查询。
+app.use('/api/auth', attachUser, authRoutes);
+app.use('/api/instances', attachUser, instanceRoutes);
+app.use('/api/admin', attachUser, adminRoutes);
+app.use('/api/checkin', attachUser, checkinRoutes);
 
 // 404 页只从这一个出口送出：status 恒为 404；文件哪天丢了也只回纯文本兜底，
 // 不让 ENOENT 带着绝对路径穿到错误处理器再原样漏给访客。
@@ -210,6 +221,10 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache');
   next();
 });
+// 面板自己的静态资源：启动时预压缩成 brotli 存内存，命中就直接发字节，
+// 每次请求都现压一遍会把首屏加载的 CPU 吃掉。不支持 br 的客户端或
+// 未收录的文件继续落到下面的 express.static。
+app.use(servePrecompressed());
 app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
 
 app.use('/api', (_req, res) => res.status(404).json({ error: '接口不存在' }));
@@ -227,6 +242,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const boot = bootstrapAdmin();
+preloadStaticAssets();
 
 // ── 首次启动检测 ──
 const envPath = path.join(ROOT, '.env');
@@ -302,6 +318,8 @@ const server = app.listen(config.port, config.host, async () => {
     await lifespan.start();
     await sleeper.start();
     await diskguard.start();
+    // 面板重启后把断掉的 cloudflared 进程拉起来（看护循环在里面）
+    cftunnel.start();
   } catch (err) {
     console.warn(`  ⚠ 暂时连不上 Docker：${err.message}`);
     console.warn('    面板仍可登录，但创建实例会失败。请启动 Docker Desktop / dockerd 后重试。\n');
@@ -314,6 +332,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     sleeper.stop().catch(() => {});
     lifespan.stop();
     diskguard.stop();
+    cftunnel.stopAll();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

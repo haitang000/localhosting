@@ -12,6 +12,7 @@ import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
 import * as term from './console.js';
+import * as cftunnel from './cftunnel.js';
 
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
@@ -25,13 +26,18 @@ export class HttpError extends Error {
 const bad = (msg) => new HttpError(400, msg);
 
 export function usage(userId) {
-  const rows = db.prepare('SELECT memory_mb, cpus, disk_mb, ports_json FROM instances WHERE user_id = ?').all(userId);
+  // 端口数用 SQLite 的 json_array_length 直接算，省掉每行一次 JSON.parse。
+  const rows = db
+    .prepare(
+      'SELECT memory_mb, cpus, disk_mb, json_array_length(ports_json) AS port_count FROM instances WHERE user_id = ?'
+    )
+    .all(userId);
   return {
     instances: rows.length,
     memoryMb: rows.reduce((a, r) => a + r.memory_mb, 0),
     cpus: Number(rows.reduce((a, r) => a + r.cpus, 0).toFixed(2)),
     diskMb: rows.reduce((a, r) => a + (r.disk_mb ?? 0), 0),
-    ports: rows.reduce((a, r) => a + JSON.parse(r.ports_json).length, 0),
+    ports: rows.reduce((a, r) => a + (r.port_count ?? 0), 0),
   };
 }
 
@@ -297,10 +303,13 @@ export async function createInstance(user, body) {
 
   // 管理员自己开的实例不排队：审批队列的意义是「先把穿透配好，再建容器」，
   // 而配穿透的就是他本人 —— 让他给自己点一次放行没有增加任何把关。
-  // 对外地址先空着（显示成 PUBLIC_HOST:主机端口），穿透配好后在实例页改。
+  // 对外地址先空着（显示成 PUBLIC_HOST:主机端口），穿透配好后在实例页改；
+  // 勾了「自动穿透」的话 approveInstance 里会建隧道并自动填好地址。
   if (user.role === 'admin') {
     emit(id, '管理员本人提交，跳过审批直接创建', 'log');
-    await approveInstance(db.prepare('SELECT * FROM instances WHERE id = ?').get(id), user, {});
+    await approveInstance(db.prepare('SELECT * FROM instances WHERE id = ?').get(id), user, {
+      autoTunnel: Boolean(body.autoTunnel),
+    });
     return { id, generated, status: 'creating' };
   }
 
@@ -372,22 +381,67 @@ export function setExpiry(row, admin, expiresAt) {
 }
 
 /** Admin approved: record the public addresses they set up, then build it. */
-export async function approveInstance(row, admin, { addresses = {}, note } = {}) {
+export async function approveInstance(row, admin, { addresses = {}, note, autoTunnel = false } = {}) {
   if (row.status !== 'pending') throw bad('这个实例不在待审批状态');
 
-  const ports = withAddresses(row, addresses);
+  let ports = withAddresses(row, addresses);
+
+  // 自动穿透：面板自己建 Cloudflare 隧道、绑域名、拉起进程，地址自动填好，
+  // 管理员不用再手动配。失败会回滚已创建的隧道再抛错，实例留在待审批队列。
+  let tunnel = null;
+  if (autoTunnel) {
+    // 上次放行时面板在隧道建好之后、容器建好之前崩溃，实例退回待审批、
+    // 但隧道还残留 —— 先清掉再建，免得域名和 DNS 记录越积越多
+    if (row.tunnel_json) await cftunnel.destroy(row).catch(() => {});
+    const problem = cftunnel.configProblem();
+    if (problem) throw bad(`自动穿透暂不可用：${problem}`);
+    const tcp = ports.filter((p) => p.protocol === 'tcp');
+    const udp = ports.filter((p) => p.protocol === 'udp');
+    if (!tcp.length) throw bad('这个实例没有可自动穿透的 TCP 端口');
+    emit(row.id, '正在创建 Cloudflare 隧道并分配域名…', 'log');
+    try {
+      tunnel = await cftunnel.createTunnel(row, tcp);
+    } catch (err) {
+      emit(row.id, `创建隧道失败：${err.message}`, 'error');
+      throw new HttpError(502, `自动创建 Cloudflare Tunnel 失败：${err.message}`);
+    }
+    // tunnel.hostnames 按下标对应 tcp 端口列表，UDP 端口穿插时不能拿
+    // 全数组的下标去取
+    const tcpIdx = new Map(tcp.map((p, i) => [p, i]));
+    ports = ports.map((p) => {
+      const i = tcpIdx.get(p);
+      return i === undefined ? p : { ...p, public: tunnel.hostnames[i] };
+    });
+    tunnel.hostnames.forEach((h) => emit(row.id, `已分配域名 https://${h}`, 'log'));
+    if (udp.length) emit(row.id, `${udp.length} 个 UDP 端口无法走 Cloudflare 隧道，未穿透（可稍后手动改地址）`, 'warn');
+  }
 
   // The lifespan clock starts here, not when the request was filed: whatever the
   // queue cost this instance, it still gets the full number of days it paid for.
   const expiresAt = lifespan.deadlineIn(row.life_days);
 
   db.prepare(
-    `UPDATE instances SET ports_json = ?, status = 'creating', error = NULL, reject_reason = NULL,
+    `UPDATE instances SET ports_json = ?, tunnel_json = ?, status = 'creating', error = NULL, reject_reason = NULL,
        reviewed_by = ?, reviewed_at = ?, expires_at = ?, archived_at = NULL,
+       sleep_enabled = CASE WHEN ? IS NOT NULL THEN 0 ELSE sleep_enabled END,
        note = COALESCE(?, note) WHERE id = ?`
-  ).run(JSON.stringify(ports), admin.username, now(), expiresAt, note ?? null, row.id);
+  ).run(
+    JSON.stringify(ports),
+    tunnel ? JSON.stringify(tunnel) : null,
+    admin.username,
+    now(),
+    expiresAt,
+    tunnel ? 1 : null,
+    note ?? null,
+    row.id
+  );
 
-  audit(admin, 'instance.approve', row.name, `属主 ${ownerName(row.user_id)}`);
+  audit(
+    admin,
+    'instance.approve',
+    row.name,
+    `属主 ${ownerName(row.user_id)}${tunnel ? `，自动 Cloudflare 隧道 ${tunnel.hostnames.join('、')}` : ''}`
+  );
   emit(row.id, `管理员 ${admin.username} 已放行，开始创建容器`, 'log');
   if (expiresAt) {
     emit(row.id, `有效期 ${row.life_days} 天，到期（${expiresAt.slice(0, 10)}）后会自动封存`, 'log');
@@ -501,7 +555,20 @@ export function getInstance(id, user) {
   return row;
 }
 
-export async function serialize(row, { withState = true } = {}) {
+/** 一批 user_id 一次性查出 username 映射 —— 列表接口不再每个实例多跑一条查询。 */
+export function ownersMap(userIds) {
+  const ids = [...new Set(userIds.filter((x) => Number.isInteger(x)))];
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  return new Map(
+    db
+      .prepare(`SELECT id, username FROM users WHERE id IN (${placeholders})`)
+      .all(...ids)
+      .map((u) => [u.id, u.username])
+  );
+}
+
+export async function serialize(row, { withState = true, owner } = {}) {
   const ports = JSON.parse(row.ports_json);
   let state = null;
   if (withState && row.container_id) {
@@ -511,7 +578,8 @@ export async function serialize(row, { withState = true } = {}) {
       state = { status: 'unknown' };
     }
   }
-  const owner = db.prepare('SELECT username FROM users WHERE id = ?').get(row.user_id);
+  // owner 由调用方批量查好传进来；单条路径没传就自己查。
+  const ownerName = owner ?? db.prepare('SELECT username FROM users WHERE id = ?').get(row.user_id)?.username ?? '?';
 
   // A sleeping or archived container looks "exited" to Docker — say what it
   // really is. Archived wins over everything: it is a terminal state.
@@ -522,7 +590,7 @@ export async function serialize(row, { withState = true } = {}) {
   return {
     id: row.id,
     name: row.name,
-    owner: owner?.username ?? '?',
+    owner: ownerName,
     userId: row.user_id,
     image: row.image,
     templateId: row.template_id,
@@ -563,6 +631,8 @@ export async function serialize(row, { withState = true } = {}) {
       graceRemainingMs: lifespan.graceRemainingMs(row),
       retentionDays: config.archiveRetentionDays || null,
     },
+    // 自动 Cloudflare 隧道：hostnames / 进程是否在跑 / 最近输出，无凭据
+    tunnel: row.tunnel_json ? cftunnel.info(row) : null,
     status,
     dbStatus: row.status,
     error: row.error,
@@ -579,7 +649,9 @@ export async function listForUser(user, { all = false } = {}) {
   const rows = all
     ? db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all()
     : db.prepare('SELECT * FROM instances WHERE user_id = ? ORDER BY created_at DESC').all(user.id);
-  return Promise.all(rows.map((r) => serialize(r)));
+  // 属主名一次查齐，不再每实例一条 SELECT。
+  const owners = ownersMap(rows.map((r) => r.user_id));
+  return Promise.all(rows.map((r) => serialize(r, { owner: owners.get(r.user_id) })));
 }
 
 export async function action(row, what, user) {
@@ -663,6 +735,14 @@ export async function setSleep(row, user, { enabled, idleMinutes } = {}) {
 export async function destroy(row, user, { keepVolume = false } = {}) {
   term.closeForInstance(row.id, '实例已删除');
   await sleeper.release(row.id);
+  // 自动穿透的实例：隧道 + DNS 记录 + 凭据一起清掉，域名腾出来
+  if (row.tunnel_json) {
+    try {
+      await cftunnel.destroy(row);
+    } catch (err) {
+      emit(row.id, `清理 Cloudflare 隧道失败：${err.message}`, 'error');
+    }
+  }
   if (row.container_id) {
     try {
       await dk.removeContainer(row.container_id);
@@ -700,8 +780,8 @@ export async function destroy(row, user, { keepVolume = false } = {}) {
 }
 
 /** 积分续期：给实例续 N 天，付积分。管理员免费。已封存（宽限期内）或
- *  活跃中的实例都能续，只要它有有效期。 */
-export function renewInstance(row, user, days) {
+ *  活跃中的实例都能续，只要它有有效期。返回更新后的行。 */
+export async function renewInstance(row, user, days) {
   if (!row.life_days) throw bad('这个实例没有有效期，不需要续期');
   if (row.status === 'pending' || row.status === 'rejected') throw bad('这个实例还没有创建容器');
   if (row.status === 'archived' && !lifespan.isInGrace(row)) {
@@ -750,7 +830,17 @@ export function renewInstance(row, user, days) {
   audit(user, 'instance.renew', row.name, reason);
   emit(row.id, `${reason}，新到期 ${expiresAt.slice(0, 10)}${wasArchived ? '，容器可重新启动' : ''}`, 'log');
 
-  return db.prepare('SELECT * FROM instances WHERE id = ?').get(row.id);
+  const fresh = db.prepare('SELECT * FROM instances WHERE id = ?').get(row.id);
+  // 封存时隧道进程被停掉了；续期激活后把域名恢复指向（隧道和 DNS 还在）
+  if (wasArchived && fresh.tunnel_json) {
+    try {
+      cftunnel.ensureRunning(fresh);
+      emit(row.id, 'Cloudflare 隧道已重新拉起，域名恢复访问', 'log');
+    } catch (err) {
+      emit(row.id, `重启 Cloudflare 隧道失败：${err.message}`, 'error');
+    }
+  }
+  return fresh;
 }
 
 /** 下载封存实例的数据卷内容（仅宽限期内可用）。返回 { stream, filename }。 */

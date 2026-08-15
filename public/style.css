@@ -4403,7 +4403,8 @@ dialog.terms .terms-doc {
 }
 
 .announcement-banner.info {
-  color: var(--primary-strong);
+  /* 信息公告不跟随品牌色（改主题色会显得整个顶部都在变色），用固定蓝。 */
+  color: #3b82f6;
 }
 .announcement-banner.warning {
   color: var(--warning);

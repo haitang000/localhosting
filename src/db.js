@@ -233,6 +233,8 @@ addColumn('instances', 'bundle_id', 'INTEGER');
 // 套餐字段：实例时长（NULL=跟随全局，0=永久）、剩余份数（-1=不限量）
 addColumn('bundles', 'days', 'INTEGER');
 addColumn('bundles', 'stock', 'INTEGER NOT NULL DEFAULT -1');
+// 自动穿透：Cloudflare Tunnel 记录（tunnelId / hostnames / 凭据文件路径 / pid）
+addColumn('instances', 'tunnel_json', 'TEXT');
 
 export const now = () => new Date().toISOString();
 

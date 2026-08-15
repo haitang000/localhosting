@@ -67,7 +67,12 @@ export function idleMs(row) {
 /** Whether this row can take part in sleeping at all. */
 export function sleepable(row) {
   return Boolean(
-    config.idleSleepEnabled && row.sleep_enabled && row.container_id && tcpPorts(row).length && !udpPorts(row).length
+    config.idleSleepEnabled &&
+      row.sleep_enabled &&
+      row.container_id &&
+      tcpPorts(row).length &&
+      !udpPorts(row).length &&
+      !row.tunnel_json
   );
 }
 
@@ -76,6 +81,10 @@ export function sleepProblem(row) {
   if (!config.idleSleepEnabled) return '管理员没有开启闲时休眠功能';
   if (udpPorts(row).length) return 'UDP 服务无法通过连接唤醒，不能开启闲时休眠';
   if (!tcpPorts(row).length) return '这个实例没有对外 TCP 端口，休眠了也没法被唤醒';
+  // 自动穿透的实例：访问全走 cloudflared，面板的端口监听根本看不到连接，
+  // 休眠后没人能唤醒它。放行时 approveInstance 已经把 sleep_enabled 清零，
+  // 这里兜底挡住手动再打开。
+  if (row.tunnel_json) return '自动穿透的实例由 Cloudflare 隧道承接访问，无法用连接唤醒，不支持闲时休眠';
   return null;
 }
 
