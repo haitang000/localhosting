@@ -3479,7 +3479,7 @@ async function viewInstance(id) {
               <polyline points="${sparkPts(hist.rx, rxMax).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
               <polyline points="${sparkPts(hist.tx, rxMax).join(' ')}" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
             </svg>
-            <div class="lgd">${icon('arrow-down-to-line')}入 · ${icon('arrow-up-from-line')}出</div>
+            <div class="lgd"><span class="lgd-dot" style="background:var(--primary)"></span>入站<span class="lgd-dot" style="background:var(--warning)"></span>出站</div>
           </div>`;
       };
 

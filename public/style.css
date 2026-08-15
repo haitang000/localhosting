@@ -2548,10 +2548,19 @@ dialog.fm-edit {
 .stat-chart .lgd {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin-top: 4px;
   font-size: 11px;
   color: var(--default-500);
+}
+.stat-chart .lgd .lgd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.stat-chart .lgd .lgd-dot + .lgd-dot {
+  margin-left: 4px;
 }
 .stat-chart .lgd svg {
   width: 12px;
