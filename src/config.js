@@ -78,13 +78,19 @@ export const config = {
   // 挑战（旋转角度烘焙进几何坐标，标记里没有答案）→ 一次性 token（绑 IP、
   // 签发/求解/使用各有最低间隔）。失败多的 IP 的 PoW 难度自动上调。
   captchaEnabled: bool(process.env.CAPTCHA_ENABLED, true),
-  captchaPowBits: num(process.env.CAPTCHA_POW_BITS, 18),
+  captchaPowBits: num(process.env.CAPTCHA_POW_BITS, 20),
   captchaTolerance: num(process.env.CAPTCHA_TOLERANCE, 10),
   captchaMinSolveMs: num(process.env.CAPTCHA_MIN_SOLVE_MS, 1000),
   captchaMinTokenAgeMs: num(process.env.CAPTCHA_MIN_TOKEN_AGE_MS, 300),
   captchaMaxChallengesPerIp: num(process.env.CAPTCHA_MAX_CHALLENGES_PER_IP, 3),
+  // 题图目录：留空用仓库自带的 src/captcha-images/。注意 —— 仓库里的题图是
+  // 公开的，攻击者能拿原图做角度比对（发题前虽有裁剪/缩放/噪声加工，同一张
+  // 照片的内容在正确角度下依然能对齐）。要堵死这条路，放自己的照片目录：
+  // 目录里多放几张方向明确（地平线、建筑、道路）的 PNG，图不在仓库里，
+  // 比对就没有基准。目录里没有可解码的图时图片回正挑战无法签发。
+  captchaImagesDir: (process.env.CAPTCHA_IMAGES_DIR || '').trim(),
   // 严格模式（默认值）：每次都要求完成图片回正，不靠行为分析放行。管理后台可改，立即生效。
-  captchaStrict: bool(process.env.CAPTCHA_STRICT, false),
+  captchaStrict: bool(process.env.CAPTCHA_STRICT, true),
 
   // --- Docker ---
   dockerHost: process.env.DOCKER_HOST || '',

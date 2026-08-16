@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { captchaStrict } from './settings.js';
-import { loadPuzzles, rotateToPng } from './rotate-image.js';
+import { loadPuzzles, rotateToPng, obscurePuzzle } from './rotate-image.js';
 
 /* ================================================================
    验证体系分四层，成本由低到高：
@@ -14,6 +15,8 @@ import { loadPuzzles, rotateToPng } from './rotate-image.js';
       对脚本是每个 token 实打实的算力开销，也是唯一没法「伪造」的一层。
    3. 图片回正挑战 —— 行为落进不确定区时下发；真实照片在服务端像素层
       旋转（见 rotate-image.js），标记里没有任何角度信息，只能真的去看图。
+      发题前还会随机裁剪 + 缩放 + 像素噪声，拿公开题图旋转后逐像素比对
+      的脚本路也堵上。
    4. 一次性 token + IP 绑定 + 时间约束 —— 签发、求解、使用三环各有
       最低间隔，token 只能在签发的 IP 上用，用完即作废。
    ================================================================ */
@@ -258,15 +261,25 @@ function plausibleTrajectory(points, hints) {
 const CHALLENGE_TTL = 5 * 60_000;
 const CHALLENGE_TRIES = 3; // 转歪一点可以调整重试，试完作废
 
-/** 启动时把 src/captcha-images/ 里的 PNG 题图解码成像素（每张都以「上」为正）。 */
-const puzzles = loadPuzzles(fileURLToPath(new URL('./captcha-images/', import.meta.url)));
+/** 启动时把题图 PNG 解码成像素（每张都以「上」为正）。
+ *  默认用仓库自带的 src/captcha-images/（公开题库，能做角度比对攻击）；
+ *  配置了 CAPTCHA_IMAGES_DIR 就用自备题图 —— 图不在公开仓库里，比对就没基准。 */
+const puzzles = loadPuzzles(
+  config.captchaImagesDir
+    ? path.resolve(config.captchaImagesDir)
+    : fileURLToPath(new URL('./captcha-images/', import.meta.url))
+);
 if (!puzzles.length) {
-  console.warn('[captcha] 没找到题图（src/captcha-images/ 下要有 PNG），图片回正挑战将无法签发');
+  console.warn(
+    '[captcha] 没找到题图（src/captcha-images/ 或 CAPTCHA_IMAGES_DIR 下要有 PNG），图片回正挑战将无法签发'
+  );
 }
 
 const challengeStore = new Map(); // id -> { answer, ip, createdAt, tries, expires }
 
-/** 签发一张回正挑战。每 IP 未解的挑战数有上限，防止并行穷举。 */
+/** 签发一张回正挑战。每 IP 未解的挑战数有上限，防止并行穷举。
+ *  发题前先 obscurePuzzle：随机裁剪 + 缩放 + 像素噪声，让挑战图和公开的
+ *  原题图在像素层对不上号 —— 拿原图旋转后逐角度比对的脚本会在这里失手。 */
 function createChallenge(ip) {
   let open = 0;
   for (const v of challengeStore.values()) {
@@ -278,7 +291,7 @@ function createChallenge(ip) {
   const pic = puzzles[Math.floor(Math.random() * puzzles.length)];
   const answer = Math.floor(Math.random() * 360); // 全角度随机，30° 步进那套穷举法没用了
   const id = crypto.randomBytes(16).toString('hex');
-  const png = rotateToPng(pic, answer);
+  const png = rotateToPng(obscurePuzzle(pic), answer);
   challengeStore.set(id, { answer, ip, createdAt: Date.now(), tries: CHALLENGE_TRIES, expires: Date.now() + CHALLENGE_TTL });
   return {
     id,
