@@ -1,3 +1,5 @@
+import { PassThrough } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { config } from '../config.js';
@@ -186,6 +188,75 @@ router.post('/:id/minecraft/command', async (req, res) => {
   const output = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
   if (r.timedOut) return res.status(504).json({ error: 'RCON 无响应（服务器可能还没起来），请稍后再试' });
   res.json({ output: output || '(服务器无输出)', exitCode: r.exitCode });
+});
+
+/* ---- Minecraft 服务器控制台 ----
+   docker logs 混着镜像启动脚本的噪音，数据卷里 <data>/logs/latest.log 才是
+   服务端自己写的东西 —— 控制台页签对 Java 版 MC 实例 tail 这份文件。
+   一律先 200：EventSource 拿到 4xx 只会无限重连，状况用消息说清楚。 */
+router.get('/:id/minecraft/logs/stream', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  if (!/itzg\/minecraft-server/i.test(row.image || '')) {
+    return res.status(400).json({ error: '这个实例不是 Java 版 Minecraft 服务器' });
+  }
+  openSse(res);
+  const sayClosed = (note) => {
+    send(res, { closed: true, note });
+    res.end();
+  };
+  if (!row.container_id) return sayClosed('容器不存在');
+
+  let state = await dk.containerState(row.container_id).catch(() => null);
+  if (!state?.running && row.status === 'sleeping') {
+    await sleeper.wake(row.id, '查看服务器日志').catch(() => {});
+    state = await dk.containerState(row.container_id).catch(() => null);
+  }
+  if (!state?.running) return sayClosed('容器未在运行，先启动它再看服务器日志');
+
+  const dataPath = JSON.parse(row.volume_paths_json || '[]')[0] || '/data';
+  const logPath = `${dataPath}/logs/latest.log`;
+  // 看日志也算在用：不让闲时休眠把正在看的服务器睡了。
+  const releaseHold = sleeper.hold(row.id);
+
+  let stream;
+  try {
+    ({ stream } = await dk.execStream(row.container_id, ['sh', '-c', `exec tail -F -n 200 "${logPath}"`], { tty: false }));
+  } catch {
+    releaseHold();
+    return sayClosed('无法附加到服务器日志');
+  }
+
+  const out = new PassThrough();
+  const errOut = new PassThrough();
+  dk.docker.modem.demuxStream(stream, out, errOut);
+  const decoder = new StringDecoder('utf8');
+  const feed = (src) => src.on('data', (chunk) => send(res, { line: decoder.write(chunk) }));
+  feed(out);
+  feed(errOut);
+
+  const ka = setInterval(() => res.write(': ka\n\n'), 20_000);
+  const close = (note = '日志流已结束') => {
+    clearInterval(ka);
+    releaseHold();
+    try {
+      stream.destroy();
+    } catch {
+      /* ignore */
+    }
+    if (!res.writableEnded) sayClosed(note);
+  };
+  stream.on('end', () => close());
+  stream.on('close', () => close());
+  stream.on('error', () => close('日志流中断'));
+  req.on('close', () => {
+    clearInterval(ka);
+    releaseHold();
+    try {
+      stream.destroy();
+    } catch {
+      /* ignore */
+    }
+  });
 });
 
 

@@ -3188,6 +3188,8 @@ async function viewInstance(id) {
        给一条明确的出路，比让人对着「未连接」猜要好。 */
     const isMc =
       i.templateId === 'minecraft' || i.templateId === 'minecraft-bedrock' || /itzg\/minecraft/i.test(i.image || '');
+    // Java 版（itzg/minecraft-server）的控制台页签直接放服务器日志，不走 shell。
+    const mcJava = i.templateId === 'minecraft' || /itzg\/minecraft-server/i.test(i.image || '');
     const consoleTab =
       i.status === 'running' || i.status === 'sleeping'
         ? `<div class="card term-card" id="term-card">
@@ -3195,7 +3197,11 @@ async function viewInstance(id) {
           <!-- 连接状态是低频的，值得播报；输出区不行 —— role="log" 自带
                aria-live，终端一刷屏就等于让读屏软件念个不停。 -->
           <span class="dot busy" id="term-status" aria-live="polite">连接中…</span>
-          <span class="sub term-sub">容器内的实时终端，相当于 <code>docker exec -it</code></span>
+          <span class="sub term-sub">${
+            mcJava
+              ? '服务器控制台实时日志（latest.log），命令经 RCON 发送'
+              : '容器内的实时终端，相当于 <code>docker exec -it</code>'
+          }</span>
           <div style="flex:1"></div>
           <div class="row term-tools">
             <button class="small ghost" id="term-mode" title="直连键盘：按键直接发给容器，Tab 补全、vim、top 才能用">${icon(
@@ -4288,6 +4294,23 @@ function wireConsole(i) {
     },
   });
 
+  /* ---- Minecraft：看日志而不是开 shell ----
+     MC 服务端是容器的 PID 1，shell 根本够不着它；控制台页签对 Java 版 MC
+     实例改放服务器日志（latest.log 实时 tail），命令走上面的 RCON 条。
+     shell 专用控件收起来，复制 / 下载 / 清屏 / 最大化 / 回到底部照常可用。 */
+  const mcLog = i.templateId === 'minecraft' || /itzg\/minecraft-server/i.test(i.image || '');
+  if (mcLog) {
+    for (const id of ['term-mode', 'term-int', 'term-restart', 'term-keys', 'term-form']) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    }
+    const hint = document.getElementById('term-hint');
+    if (hint) {
+      hint.textContent =
+        '这里是服务器控制台实时日志，服务器重启后会自动续上；游戏命令从上面的输入条经 RCON 发给服务端。';
+    }
+  }
+
   /* ---- Minecraft 游戏命令 ----
      MC 服务端只从自己的 stdin 读命令，docker exec 的 shell 敲不进去；
      这条命令条走 RCON（itzg 镜像默认开启），结果直接打进终端输出区。 */
@@ -4500,8 +4523,51 @@ function wireConsole(i) {
   };
   timers.push(() => clearTimeout(retryTimer));
 
+  /* ---- MC 日志模式没有会话握手：直接开 SSE。错误也走消息（服务端一律先回
+     200），EventSource 拿到 4xx 只会无限重连，那条消息会替它说出来。 */
+  const connectMc = () => {
+    if (stopped) return;
+    es?.close();
+    es = null;
+    ended = false;
+    attached = true;
+    backoff = 0;
+    setEnabled(false);
+    dot.classList.remove('clickable');
+    status('连接中…', 'busy');
+    const stream = new EventSource(`/api/instances/${i.id}/minecraft/logs/stream`);
+    es = stream;
+    timers.push(() => stream.close());
+    stream.onopen = () => {
+      if (stream !== es) return;
+      status('已连接', 'ok');
+    };
+    stream.onmessage = (m) => {
+      if (stream !== es) return;
+      const d = JSON.parse(m.data);
+      if (d.line) term.write(d.line);
+      if (d.closed) {
+        attached = false;
+        ended = true;
+        status(d.note || '日志流已结束', 'err');
+        dot.classList.add('clickable');
+        stream.close();
+      }
+    };
+    stream.onerror = () => {
+      if (stream !== es) return;
+      if (ended || stopped) {
+        stream.close();
+        return;
+      }
+      // 服务端发了 retry: 1000，EventSource 会自己接回去
+      status('连接断开，正在重连…', 'busy');
+    };
+  };
+
   const connect = async (restart = false, isRetry = false) => {
     if (stopped || connecting) return;
+    if (mcLog) return connectMc();
     connecting = true;
     clearTimeout(retryTimer);
     es?.close();
@@ -4902,7 +4968,8 @@ function wireConsole(i) {
     resizeTimer = setTimeout(() => {
       const m = metrics();
       term.setRows(m.rows);
-      if (attached) post('/resize', { cols: m.cols, rows: m.rows }).catch(() => {});
+      // MC 日志模式没有 pty，谈不上改窗口大小
+      if (attached && !mcLog) post('/resize', { cols: m.cols, rows: m.rows }).catch(() => {});
     }, 300);
   };
   window.addEventListener('resize', onResize);
@@ -4945,7 +5012,8 @@ function wireConsole(i) {
     });
   }
 
-  setMode(direct);
+  if (mcLog) mcIn?.focus();
+  else setMode(direct);
   connect();
 }
 
