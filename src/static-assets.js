@@ -18,9 +18,9 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
 };
 
-/** public/ 下全部静态文件；新增文件只需在这补一行。 */
+/** public/ 下全部静态文件；新增文件只需在这补一行。
+ *  index.html 不在列表里：首页壳按请求动态渲染（见 seo.js），不走预压缩缓存。 */
 const FILES = [
-  'index.html',
   '404.html',
   'terms.html',
   'app.js',
@@ -30,8 +30,8 @@ const FILES = [
   'vendor/marked.esm.js',
 ];
 
-/** req.path → 磁盘相对路径；"/" 就是 SPA 壳。 */
-const ALIASES = { '/': '/index.html' };
+/** req.path → 磁盘相对路径。 */
+const ALIASES = {};
 
 const assets = new Map(); // '/app.js' -> { br, etag, lastModified, type }
 

@@ -11,7 +11,7 @@ import { refundPoints, spendPoints } from '../points.js';
 import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
-import { panelName, panelColor, setSetting, captchaMode } from '../settings.js';
+import { panelName, panelColor, panelDescription, setSetting, captchaMode } from '../settings.js';
 import * as cftunnel from '../cftunnel.js';
 
 export const router = Router();
@@ -462,12 +462,17 @@ announcementImageRouter.post('/upload', imageJson, (req, res) => {
 
 // ---------- 面板设置 ----------
 router.get('/settings', (req, res) => {
-  res.json({ panelName: panelName(), panelColor: panelColor(), captchaMode: captchaMode() });
+  res.json({
+    panelName: panelName(),
+    panelColor: panelColor(),
+    panelDescription: panelDescription(),
+    captchaMode: captchaMode(),
+  });
 });
 
 router.patch('/settings', (req, res) => {
-  const { panelName: name, panelColor: color, captchaMode: mode } = req.body || {};
-  if (name === undefined && color === undefined && mode === undefined) {
+  const { panelName: name, panelColor: color, captchaMode: mode, panelDescription: description } = req.body || {};
+  if (name === undefined && color === undefined && mode === undefined && description === undefined) {
     return res.status(400).json({ error: '没有可保存的字段' });
   }
   if (name !== undefined) {
@@ -489,8 +494,22 @@ router.patch('/settings', (req, res) => {
     }
     setSetting('captcha_mode', mode);
   }
-  audit(req.user, 'admin.settings_brand', name ?? color ?? mode, JSON.stringify(req.body));
-  res.json({ panelName: panelName(), panelColor: panelColor(), captchaMode: captchaMode() });
+  if (description !== undefined) {
+    if (typeof description !== 'string') return res.status(400).json({ error: '站点描述无效' });
+    setSetting('panel_description', description.trim().slice(0, 200));
+  }
+  audit(
+    req.user,
+    'admin.settings_brand',
+    name ?? color ?? mode ?? description,
+    JSON.stringify(req.body)
+  );
+  res.json({
+    panelName: panelName(),
+    panelColor: panelColor(),
+    panelDescription: panelDescription(),
+    captchaMode: captchaMode(),
+  });
 });
 
 // ---------- 积分套餐 ----------

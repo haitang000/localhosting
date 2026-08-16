@@ -46,6 +46,14 @@ export const config = {
   panelColor: /^#[0-9a-fA-F]{6}$/.test(process.env.PANEL_COLOR || '')
     ? process.env.PANEL_COLOR
     : '#006fee',
+  // 站点描述（SEO）：写进页面 <meta name="description"> 和 Open Graph，也是
+  // 搜索引擎里对面板的一句话介绍。同上，settings 播种值，管理后台可改。
+  panelDescription: (
+    process.env.PANEL_DESCRIPTION ||
+    '云容器托管面板：一键部署 Minecraft 服务器、Nextcloud、WordPress、数据库等应用，自带实时控制台、文件管理、闲时休眠与自动唤醒。'
+  )
+    .trim()
+    .slice(0, 200),
 
   // --- Bootstrap admin (created on first run if no users exist) ---
   adminUsername: process.env.ADMIN_USERNAME || 'admin',

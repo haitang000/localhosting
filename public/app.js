@@ -2607,47 +2607,77 @@ function viewNew() {
         </div>`;
     };
     const ok = customOk();
-    slot.innerHTML = `
-      ${cats
+    /* 搜索只重画卡片区，输入框留在原地不丢焦点。命中时按原分类分组列出，
+       自定义 / 不用容器两块先收起来；没命中给一句空态，而不是白屏。 */
+    const gridHtml = () => {
+      const query = (slot.querySelector('#tpl-search')?.value || '').trim().toLowerCase();
+      if (!query) {
+        return `${cats
+          .map(
+            (c) => `${cat(CAT_ICON[c] || 'layers', c)}
+            <div class="grid cols">${state.templates
+              .filter((t) => t.category === c)
+              .map(card)
+              .join('')}</div>`
+          )
+          .join('')}
+        ${cat('puzzle', '自定义')}
+        <div class="grid cols">
+          <div class="card tpl ${draft.tplId === '__custom__' ? 'on' : ''}" data-tpl="__custom__" style="${
+          ok ? '' : 'opacity:.5;cursor:not-allowed'
+        }">
+            <div class="icon">${icon('puzzle')}</div>
+            <div><div class="t-name">自定义镜像</div>
+              <div class="t-desc">${
+                ok
+                  ? '手动填写任意镜像、端口与环境变量。'
+                  : draft.voucher
+                    ? '这张券和你的账号都没有自定义镜像权限，请联系管理员。'
+                    : '积分实例不支持自定义镜像；需要账号权限或一张带该权限的券。'
+              }</div></div>
+          </div>
+        </div>
+        ${
+          state.cfg?.sites?.enabled
+            ? `${cat('globe', '不用容器')}
+               <div class="grid cols">
+                 <a class="card tpl" href="#/sites" style="text-decoration:none;color:inherit">
+                   <div class="icon">${icon('file-code')}</div>
+                   <div><div class="t-name">静态网页</div>
+                     <div class="t-desc">把 HTML 文件或整个文件夹拖进来就上线，不花内存、不占端口、不用等审批。</div>
+                     <div class="t-desc" style="margin-top:4px">发一个花 ${
+                       state.cfg?.points?.siteCost ?? 50
+                     } 积分，比实例便宜一半</div></div>
+                 </a>
+               </div>`
+            : ''
+        }`;
+      }
+      const hits = state.templates.filter((t) =>
+        [t.name, t.description, t.image, t.category, t.id].some((f) => f?.toLowerCase().includes(query))
+      );
+      if (!hits.length) {
+        return `<div class="hint" style="padding:10px 2px">${icon('search')}没有匹配「${esc(
+          query
+        )}」的模板，换个关键词试试</div>`;
+      }
+      const grouped = [...new Set(hits.map((t) => t.category))];
+      return grouped
         .map(
           (c) => `${cat(CAT_ICON[c] || 'layers', c)}
-          <div class="grid cols">${state.templates
+          <div class="grid cols">${hits
             .filter((t) => t.category === c)
             .map(card)
             .join('')}</div>`
         )
-        .join('')}
-      ${cat('puzzle', '自定义')}
-      <div class="grid cols">
-        <div class="card tpl ${draft.tplId === '__custom__' ? 'on' : ''}" data-tpl="__custom__" style="${
-      ok ? '' : 'opacity:.5;cursor:not-allowed'
-    }">
-          <div class="icon">${icon('puzzle')}</div>
-          <div><div class="t-name">自定义镜像</div>
-            <div class="t-desc">${
-              ok
-                ? '手动填写任意镜像、端口与环境变量。'
-                : draft.voucher
-                  ? '这张券和你的账号都没有自定义镜像权限，请联系管理员。'
-                  : '积分实例不支持自定义镜像；需要账号权限或一张带该权限的券。'
-            }</div></div>
-        </div>
-      </div>
-      ${
-        state.cfg?.sites?.enabled
-          ? `${cat('globe', '不用容器')}
-             <div class="grid cols">
-               <a class="card tpl" href="#/sites" style="text-decoration:none;color:inherit">
-                 <div class="icon">${icon('file-code')}</div>
-                 <div><div class="t-name">静态网页</div>
-                   <div class="t-desc">把 HTML 文件或整个文件夹拖进来就上线，不花内存、不占端口、不用等审批。</div>
-                   <div class="t-desc" style="margin-top:4px">发一个花 ${
-                     state.cfg?.points?.siteCost ?? 50
-                   } 积分，比实例便宜一半</div></div>
-               </a>
-             </div>`
-          : ''
-      }
+        .join('');
+    };
+    slot.innerHTML = `
+      <label class="field" style="margin-bottom:14px;max-width:540px"><span>${icon('search')}搜索模板</span>
+        <input id="tpl-search" type="search" autocomplete="off" autocapitalize="off" spellcheck="false"
+          placeholder="按名称 / 说明 / 镜像 / 分类，如 Minecraft、数据库、WordPress…" />
+      </label>
+      <div id="tpl-grids">${gridHtml()}</div>
       <div class="nv-foot">
         <button type="button" class="ghost" data-nv-back>${icon('arrow-left')}上一步</button>
         <div class="spacer" style="flex:1"></div>
@@ -2657,6 +2687,13 @@ function viewNew() {
             : `<span class="sub">${icon('list-checks')}点一张卡片继续</span>`
         }
       </div>`;
+    const render = () => {
+      const grid = slot.querySelector('#tpl-grids');
+      if (!grid) return;
+      grid.innerHTML = gridHtml();
+      slot.querySelectorAll('[data-tpl]').forEach((el) => (el.onclick = () => pick(el.dataset.tpl)));
+    };
+    slot.querySelector('#tpl-search')?.addEventListener('input', render);
 
     const pick = (id) => {
       if (id === '__custom__' && !customOk()) return;
@@ -4321,12 +4358,15 @@ function wireConsole(i) {
       const cmd = mcIn.value.trim();
       if (!cmd) return;
       mcSend.disabled = true;
+      mcIn.value = '';
       term.write(`\r\n\x1b[90m> ${cmd}\x1b[0m\r\n`);
       try {
         const r = await api(`/instances/${i.id}/minecraft/command`, { method: 'POST', body: { command: cmd } });
         term.write(`${(r.output || '').trim() || '(服务器无输出)'}\r\n`);
         term.setStick(true);
       } catch (err) {
+        // 发送失败把命令放回框里，方便直接重发
+        mcIn.value = cmd;
         term.write(`\x1b[31m${err.message}\x1b[0m\r\n`);
       } finally {
         mcSend.disabled = false;
@@ -6093,6 +6133,9 @@ async function viewAdmin() {
               <span class="sub mono" id="panel-color-hex">${esc((state.cfg?.panelColor || '#006fee').toLowerCase())}</span>
             </span>
             <div class="hint">logo 和整套强调色都由它派生</div></label>
+          <label class="field" style="flex:1;min-width:280px;margin:0"><span>${icon('search')}站点描述（SEO）</span>
+            <input id="panel-desc" value="${esc(state.cfg?.panelDescription || '')}" maxlength="200" />
+            <div class="hint">写进页面 meta description，是搜索引擎里对面板的一句话简介，最多 200 字</div></label>
           <button class="primary" id="panel-name-save">${icon('save')}保存</button>
         </div>
         <div class="err" id="panel-name-err"></div>
@@ -6669,6 +6712,7 @@ function wireAdmin(refresh) {
   const panelNameSave = document.getElementById('panel-name-save');
   if (panelNameSave) {
     const input = document.getElementById('panel-name');
+    const descInput = document.getElementById('panel-desc');
     const colorInput = document.getElementById('panel-color');
     const colorHex = document.getElementById('panel-color-hex');
     const errEl = document.getElementById('panel-name-err');
@@ -6679,11 +6723,15 @@ function wireAdmin(refresh) {
     panelNameSave.onclick = async () => {
       errEl.textContent = '';
       try {
-        const { panelName, panelColor } = await api('/admin/settings', {
+        const { panelName, panelColor, panelDescription } = await api('/admin/settings', {
           method: 'PATCH',
-          body: { panelName: input.value, panelColor: colorInput.value },
+          body: {
+            panelName: input.value,
+            panelColor: colorInput.value,
+            panelDescription: descInput.value,
+          },
         });
-        state.cfg = { ...(state.cfg || {}), panelName, panelColor };
+        state.cfg = { ...(state.cfg || {}), panelName, panelColor, panelDescription };
         document.title = `${panelName} · 容器面板`;
         applyTheme(panelColor);
         toast('品牌设置已保存', 'ok');
@@ -6695,6 +6743,7 @@ function wireAdmin(refresh) {
         colorHex.textContent = (state.cfg?.panelColor || '#006fee').toLowerCase();
         colorInput.value = state.cfg?.panelColor || '#006fee';
         input.value = state.cfg?.panelName || 'localhosting';
+        descInput.value = state.cfg?.panelDescription || '';
       }
     };
     input.addEventListener('keydown', (e) => {

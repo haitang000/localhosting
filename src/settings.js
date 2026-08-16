@@ -11,6 +11,7 @@ export function seedSettings() {
   const seeds = {
     panel_name: config.panelName,
     panel_color: config.panelColor,
+    panel_description: config.panelDescription,
     captcha_mode: config.captchaStrict ? 'strict' : 'normal',
   };
   const get = db.prepare('SELECT value FROM settings WHERE key = ?');
@@ -41,6 +42,11 @@ export function panelName() {
 export function panelColor() {
   const v = getSetting('panel_color', config.panelColor);
   return /^#[0-9a-fA-F]{6}$/.test(v) ? v : config.panelColor;
+}
+
+/** 站点描述（SEO）：首页 <meta name="description"> 的出处。 */
+export function panelDescription() {
+  return getSetting('panel_description', config.panelDescription);
 }
 
 /** 验证码严格程度：normal = 行为检测、拿不准才出图；strict = 每次都出图。 */

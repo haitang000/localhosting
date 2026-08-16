@@ -3,12 +3,14 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import express from 'express';
 import compression from 'compression';
-import { config, ROOT, panelBaseUrl, panelAddressUnset } from './config.js';
+import { config, ROOT, panelBaseUrl, panelAddressUnset, siteAddress } from './config.js';
 import { preloadStaticAssets, servePrecompressed } from './static-assets.js';
+import * as seo from './seo.js';
 import { attachUser, bootstrapAdmin } from './auth.js';
 import { publicTemplates } from './templates.js';
 import { poolStats } from './ports.js';
 import { reconcile, HttpError } from './instances.js';
+import { db } from './db.js';
 import * as dk from './docker.js';
 import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
@@ -24,7 +26,7 @@ import { router as adminRoutes, announcementImageRouter } from './routes/admin.j
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
-import { seedSettings, panelName, panelColor, captchaMode } from './settings.js';
+import { seedSettings, panelName, panelColor, panelDescription, captchaMode } from './settings.js';
 
 seedBundles();
 seedSettings();
@@ -97,6 +99,7 @@ app.get('/api/config', (_req, res) => {
   res.json({
     panelName: panelName(),
     panelColor: panelColor(),
+    panelDescription: panelDescription(),
     captchaMode: captchaMode(),
     publicHost: config.publicHost || null,
     publicScheme: config.publicScheme,
@@ -191,6 +194,45 @@ app.get('/api/terms', (_req, res) => {
 
 app.get('/api/announcements', (_req, res) => {
   res.json({ announcements: announcements.listActive() });
+});
+
+/* ------------------------------------------------------------ SEO ----------
+   首页壳按请求渲染（面板名/描述存在 settings 表，管理员改了立即生效），所以
+   它不走静态资源管线，也不进启动时的预压缩缓存。页面很小，每次现拼没成本。
+   canonical / og:url / sitemap 只在面板知道自己的公网地址时才给出 ——
+   不然会把 localhost 写进搜索引擎。 */
+
+app.get(['/', '/index.html'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html');
+  res.send(
+    seo.renderIndex({
+      name: panelName(),
+      color: panelColor(),
+      description: panelDescription(),
+      baseUrl: panelBaseUrl(),
+      hasPublicUrl: !panelAddressUnset(),
+    })
+  );
+});
+
+app.get('/robots.txt', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('text/plain');
+  res.send(seo.robotsTxt(panelAddressUnset() ? null : panelBaseUrl()));
+});
+
+app.get('/sitemap.xml', (_req, res) => {
+  if (panelAddressUnset()) return sendNotFoundPage(res);
+  // 公开发布的静态站点是面板上唯一由用户产生、又对搜索引擎可见的内容，一并列上。
+  const slugs = config.sitesEnabled
+    ? db.prepare('SELECT slug FROM sites ORDER BY updated_at DESC').all().map((r) => r.slug)
+    : [];
+  const urls = [panelBaseUrl() + '/', panelBaseUrl() + '/terms'];
+  for (const slug of slugs) urls.push(siteAddress(slug));
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/xml');
+  res.send(seo.sitemapXml(urls));
 });
 
 // 会话鉴权只挂在需要它的 API 路由上：静态资源、/s/ 站点页、公告图片这些
