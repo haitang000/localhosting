@@ -212,7 +212,7 @@ export const config = {
   pointsInstanceDiskMb: num(process.env.POINTS_INSTANCE_DISK_MB, 2048), // 基础价含的硬盘
   pointsDiskStepMb: num(process.env.POINTS_DISK_STEP_MB, 2048),
   pointsDiskStepCost: num(process.env.POINTS_DISK_STEP_COST, 100),
-  pointsMaxDiskMb: num(process.env.POINTS_MAX_DISK_MB, 16384),
+  pointsMaxDiskMb: num(process.env.POINTS_MAX_DISK_MB, 81920),
   // 套餐直减：这几个「内存 + CPU + 硬盘」组合按打包价卖，比逐档加配明显便宜
   //（2c2g 原价 890 → 650 约七三折，4c4g 原价 1730 → 1200 约七折）；端口费照收。
   // 只作首次启动的种子数据：之后在管理后台「套餐」页改，改动存在数据库里。

@@ -2265,7 +2265,7 @@ function viewNew() {
       maxPorts: 4,
       diskStepMb: 2048,
       diskStepCost: 100,
-      maxDiskMb: 16384,
+      maxDiskMb: 81920,
     };
   if (!draft.spec)
     draft.spec = {
