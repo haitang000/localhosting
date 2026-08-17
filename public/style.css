@@ -1390,6 +1390,58 @@ dialog.puzzle .puzzle-tip {
   margin-top: 10px;
   accent-color: var(--primary);
   cursor: pointer;
+  touch-action: none;
+}
+.puzzle-needle {
+  position: absolute;
+  top: 8.5%;
+  left: 50%;
+  width: 2px;
+  height: 41.5%;
+  translate: -50% 0;
+  background: linear-gradient(to bottom, var(--danger), color-mix(in srgb, var(--danger) 20%, transparent));
+  transform-origin: 50% 100%;
+  border-radius: 2px;
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 1;
+}
+.puzzle-steppers {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.puzzle-steppers .ghost {
+  min-width: 72px;
+  padding: 8px 0;
+}
+.puzzle-deg {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--default-700);
+  letter-spacing: 0.02em;
+}
+@media (pointer: coarse) {
+  .puzzle-stage {
+    width: min(264px, 74vw);
+    height: min(264px, 74vw);
+  }
+  .puzzle-img {
+    width: min(228px, 64vw);
+    height: min(228px, 64vw);
+  }
+  .puzzle-range {
+    height: 30px;
+    margin-top: 14px;
+  }
+  .puzzle-steppers .ghost {
+    min-width: 84px;
+    padding: 12px 0;
+    font-size: 15px;
+  }
 }
 
 /* ---------- template gallery ---------- */
@@ -3447,30 +3499,68 @@ dialog.terms .terms-doc {
   font-size: 13.5px;
 }
 
-/* ---------- standalone 404 page ----------
+/* ---------- standalone 404 / 503 pages ----------
    The panel's own routes all hide behind #/…, so a path that lands on 404.html
    really names nothing. There is no app shell here — like the boot screen, the
-   page carries the brand's face on its own. */
+   page carries the brand's face on its own. The 503 maintenance page (server
+   side, maintenanceHtml) shares the same skin, so the dot field and the dotmark
+   below belong to both: same dressing the sign-in card gets, minus the card. */
 .nf-page {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 100dvh;
   padding: 24px;
 }
+/* The sign-in screen's dot field, verbatim: a fixed dot grid that fades out
+   toward the viewport edges, so the mark sits in the calm middle of a halo. */
+.nf-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+  background-size: 8px 8px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+}
 .nf {
   text-align: center;
   animation: nf-in 300ms var(--ease-out) both;
 }
-.nf-mark {
-  display: block;
-  width: 56px;
-  height: 56px;
+/* The dotmark's default 80px is sized for sitting above the sign-in card; here
+   it stands alone, so a step down keeps the ring from swallowing the page. The
+   wave / assemble animations are the shared .dotmark ones. */
+.nf .dotmark {
+  width: 64px;
+  height: 64px;
   margin: 0 auto 20px;
 }
-.nf-mark rect {
-  fill: none;
-  stroke: var(--primary);
-  stroke-width: 3;
+/* 503 页上的公告：居中页面里唯一需要左对齐读的一整块，给它一张卡片，
+   否则维护文案和公告混在一屏上分不出谁是谁。 */
+.nf-anns {
+  margin: 28px auto 0;
+  max-width: 520px;
+  text-align: left;
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 14px 18px 16px;
+}
+.nf-anns-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.nf-anns-head b {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.nf-anns .announcement-item + .announcement-item {
+  border-top: 1px solid var(--divider);
 }
 .nf-code {
   margin: 0;
@@ -3502,13 +3592,6 @@ dialog.terms .terms-doc {
     transform: translateY(6px);
   }
 }
-@media (prefers-color-scheme: dark) {
-  /* same shift the dotmark makes: the flat primary reads dull on black */
-  .nf-mark rect {
-    stroke: var(--primary-strong);
-  }
-}
-
 /* ---------- scrollbars ---------- */
 * {
   scrollbar-width: thin;
@@ -4560,4 +4643,67 @@ dialog.terms .terms-doc {
   .announcement-banner-body code {
     background: rgba(255,255,255,0.08);
   }
+}
+
+/* ---------- switcher ----------
+   The panel's binary toggles, drawn as a 40×24 pill that slides its knob. The
+   real input stays a checkbox — invisible but covering the whole track — so
+   forms keep serializing name/checked, `required` validation still applies
+   (the terms row on the sign-in card), and JS reading `.checked` is untouched.
+   Track is the neutral scale, on is the primary; the knob's shadow keeps the
+   pill from going flat in both colour schemes. */
+.switch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  vertical-align: middle;
+}
+.switch > input[type="checkbox"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.switch .knob {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--default-300);
+  transition: background var(--fast);
+  pointer-events: none;
+}
+.switch .knob::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--content1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: transform var(--fast);
+}
+.switch > input[type="checkbox"]:checked + .knob {
+  background: var(--primary);
+}
+.switch > input[type="checkbox"]:checked + .knob::after {
+  transform: translateX(16px);
+}
+.switch > input[type="checkbox"]:focus-visible + .knob {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.switch > input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+.switch > input[type="checkbox"]:disabled + .knob {
+  opacity: 0.5;
 }

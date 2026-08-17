@@ -26,7 +26,7 @@ import { router as adminRoutes, announcementImageRouter } from './routes/admin.j
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
-import { seedSettings, panelName, panelColor, panelDescription, captchaMode } from './settings.js';
+import { seedSettings, panelName, panelColor, panelDescription, captchaMode, maintenanceMode } from './settings.js';
 
 seedBundles();
 seedSettings();
@@ -60,6 +60,114 @@ app.use('/api', (req, res, next) => {
   if (req.headers['x-lh-csrf'] === '1') return next();
   return res.status(403).json({ error: '拒绝跨站请求' });
 });
+
+/* ── 维护模式 ──
+   开启后只有管理员能进；本机直连（localhost/127.0.0.1 且无 X-Forwarded-For，
+   即不走 cloudflared 隧道的直接访问）也放行，方便在机器上调试。
+   放行清单是「渲染维护页 / 登录页要用的静态资源」+
+   「管理员被关在外面之后的退路」：/api/auth/*（登录、验证码、me）和
+   /api/config、/api/health、/terms。其余页面（/、/s/、robots、sitemap）
+   和 API 一律 503 —— 非管理员拿维护页，管理员凭会话照常使用面板。 */
+const MAINT_OPEN_EXACT = [
+  '/api/config',
+  '/api/health',
+  '/api/terms',
+  '/api/auth/me',
+  '/api/auth/login',
+  '/api/auth/pow',
+  '/api/auth/turnstile',
+  '/api/auth/captcha',
+  '/terms',
+  '/terms.html',
+  '/style.css',
+  '/app.js',
+  '/editor.js',
+  '/icons.js',
+];
+/** 本机直连判定：面板绑在 127.0.0.1，cloudflared 隧道转发也是从本机连进来，
+ *  所以靠 X-Forwarded-For 区分 —— 代理链路会带上真实访客 IP，直连不会带。 */
+function isLocalDirect(req) {
+  const addr = req.socket?.remoteAddress || '';
+  const loopback =
+    addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('::ffff:127.');
+  return loopback && !req.headers['x-forwarded-for'];
+}
+
+app.use((req, res, next) => {
+  if (!maintenanceMode()) return next();
+  if (req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  // 维护模式放行本机直连：管理员在机器上维护时，浏览器 / curl 走 localhost 照常能用。
+  if (isLocalDirect(req)) return next();
+  const p = req.path;
+  if (MAINT_OPEN_EXACT.includes(p) || p.startsWith('/announcement-images/') || p.startsWith('/vendor/')) {
+    return next();
+  }
+  attachUser(req, res, () => {
+    if (req.user?.role === 'admin') return next();
+    if (p.startsWith('/api/')) {
+      return res.status(503).json({ error: '面板维护中，请稍后再来', maintenance: true });
+    }
+    res.status(503).setHeader('Cache-Control', 'no-cache').type('html').send(maintenanceHtml(panelName()));
+  });
+});
+
+/** 维护页：和 404 页同一套外观，503 语义（搜索引擎会当作临时下线，不降权）。
+ *  下方带上当前生效的公告（listActive 已按优先级排序），维护期间正好是
+ *  用户最该读到通知的时候。 */
+const escHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function maintenanceHtml(name) {
+  const esc = escHtml(name);
+  const activeAnns = announcements.listActive();
+  const annItems = activeAnns
+    .map((a) => `
+        <div class="announcement-item ${a.priority}">
+          <div class="announcement-item-head">
+            <span class="badge ${a.priority}">${({ critical: '重要', warning: '提醒', info: '信息' })[a.priority] || a.priority}</span>
+            ${a.title ? `<b>${escHtml(a.title)}</b>` : ''}
+          </div>
+          <div class="announcement-item-body">${a.html}</div>
+        </div>`)
+    .join('');
+  const annBlock = annItems
+    ? `<div class="nf-anns">
+        <div class="nf-anns-head"><b>公告</b><span class="sub">${activeAnns.length} 条</span></div>
+        ${annItems}
+      </div>`
+    : '';
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>维护中 · ${esc}</title>
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="nf-page">
+      <div class="nf">
+        <svg class="dotmark assemble" viewBox="0 0 32 32" role="img" aria-label="${esc}">
+          <defs>
+            <linearGradient id="dotmark-ink" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" /><stop offset="1" />
+            </linearGradient>
+          </defs>
+          <g fill="url(#dotmark-ink)"><circle cx="3.53" cy="9.40" r="0.45" style="animation-delay:-427ms,459ms" /><circle cx="3.53" cy="10.87" r="0.45" style="animation-delay:-533ms,33ms" /><circle cx="3.53" cy="12.33" r="0.45" style="animation-delay:-638ms,435ms" /><circle cx="3.53" cy="13.80" r="0.45" style="animation-delay:-744ms,236ms" /><circle cx="3.53" cy="15.27" r="0.45" style="animation-delay:-850ms,653ms" /><circle cx="3.53" cy="16.73" r="0.45" style="animation-delay:-955ms,558ms" /><circle cx="3.53" cy="18.20" r="0.45" style="animation-delay:-1061ms,170ms" /><circle cx="3.53" cy="19.67" r="0.45" style="animation-delay:-1166ms,147ms" /><circle cx="3.53" cy="21.13" r="0.45" style="animation-delay:-1272ms,76ms" /><circle cx="3.53" cy="22.60" r="0.45" style="animation-delay:-1378ms,662ms" /><circle cx="5.00" cy="6.47" r="0.45" style="animation-delay:-322ms,421ms" /><circle cx="5.00" cy="7.93" r="0.45" style="animation-delay:-427ms,605ms" /><circle cx="5.00" cy="9.40" r="0.45" style="animation-delay:-533ms,132ms" /><circle cx="5.00" cy="10.87" r="0.45" style="animation-delay:-638ms,208ms" /><circle cx="5.00" cy="12.33" r="0.45" style="animation-delay:-744ms,639ms" /><circle cx="5.00" cy="13.80" r="0.45" style="animation-delay:-850ms,516ms" /><circle cx="5.00" cy="15.27" r="0.45" style="animation-delay:-955ms,388ms" /><circle cx="5.00" cy="16.73" r="0.45" style="animation-delay:-1061ms,440ms" /><circle cx="5.00" cy="18.20" r="0.45" style="animation-delay:-1166ms,118ms" /><circle cx="5.00" cy="19.67" r="0.45" style="animation-delay:-1272ms,85ms" /><circle cx="5.00" cy="21.13" r="0.45" style="animation-delay:-1378ms,184ms" /><circle cx="5.00" cy="22.60" r="0.45" style="animation-delay:-1483ms,331ms" /><circle cx="5.00" cy="24.07" r="0.45" style="animation-delay:-1589ms,142ms" /><circle cx="5.00" cy="25.53" r="0.45" style="animation-delay:-1694ms,695ms" /><circle cx="6.47" cy="5.00" r="0.45" style="animation-delay:-322ms,0ms" /><circle cx="6.47" cy="6.47" r="0.45" style="animation-delay:-427ms,634ms" /><circle cx="6.47" cy="7.93" r="0.45" style="animation-delay:-533ms,464ms" /><circle cx="6.47" cy="9.40" r="0.45" style="animation-delay:-638ms,577ms" /><circle cx="6.47" cy="10.87" r="0.45" style="animation-delay:-744ms,123ms" /><circle cx="6.47" cy="12.33" r="0.45" style="animation-delay:-850ms,293ms" /><circle cx="6.47" cy="13.80" r="0.45" style="animation-delay:-955ms,449ms" /><circle cx="6.47" cy="15.27" r="0.45" style="animation-delay:-1061ms,497ms" /><circle cx="6.47" cy="16.73" r="0.45" style="animation-delay:-1166ms,251ms" /><circle cx="6.47" cy="18.20" r="0.45" style="animation-delay:-1272ms,166ms" /><circle cx="6.47" cy="19.67" r="0.45" style="animation-delay:-1378ms,43ms" /><circle cx="6.47" cy="21.13" r="0.45" style="animation-delay:-1483ms,657ms" /><circle cx="6.47" cy="22.60" r="0.45" style="animation-delay:-1589ms,52ms" /><circle cx="6.47" cy="24.07" r="0.45" style="animation-delay:-1694ms,71ms" /><circle cx="6.47" cy="25.53" r="0.45" style="animation-delay:-1800ms,336ms" /><circle cx="6.47" cy="27.00" r="0.45" style="animation-delay:-1906ms,66ms" /><circle cx="7.93" cy="5.00" r="0.45" style="animation-delay:-427ms,487ms" /><circle cx="7.93" cy="6.47" r="0.45" style="animation-delay:-533ms,620ms" /><circle cx="7.93" cy="25.53" r="0.45" style="animation-delay:-1906ms,312ms" /><circle cx="7.93" cy="27.00" r="0.45" style="animation-delay:-2011ms,445ms" /><circle cx="9.40" cy="3.53" r="0.45" style="animation-delay:-427ms,194ms" /><circle cx="9.40" cy="5.00" r="0.45" style="animation-delay:-533ms,222ms" /><circle cx="9.40" cy="6.47" r="0.45" style="animation-delay:-638ms,676ms" /><circle cx="9.40" cy="25.53" r="0.45" style="animation-delay:-2011ms,14ms" /><circle cx="9.40" cy="27.00" r="0.45" style="animation-delay:-2117ms,553ms" /><circle cx="9.40" cy="28.47" r="0.45" style="animation-delay:-2222ms,355ms" /><circle cx="10.87" cy="3.53" r="0.45" style="animation-delay:-533ms,298ms" /><circle cx="10.87" cy="5.00" r="0.45" style="animation-delay:-638ms,667ms" /><circle cx="10.87" cy="6.47" r="0.45" style="animation-delay:-744ms,407ms" /><circle cx="10.87" cy="25.53" r="0.45" style="animation-delay:-2117ms,393ms" /><circle cx="10.87" cy="27.00" r="0.45" style="animation-delay:-2222ms,615ms" /><circle cx="10.87" cy="28.47" r="0.45" style="animation-delay:-2328ms,99ms" /><circle cx="12.33" cy="3.53" r="0.45" style="animation-delay:-638ms,629ms" /><circle cx="12.33" cy="5.00" r="0.45" style="animation-delay:-744ms,643ms" /><circle cx="12.33" cy="6.47" r="0.45" style="animation-delay:-850ms,492ms" /><circle cx="12.33" cy="25.53" r="0.45" style="animation-delay:-2222ms,568ms" /><circle cx="12.33" cy="27.00" r="0.45" style="animation-delay:-2328ms,378ms" /><circle cx="12.33" cy="28.47" r="0.45" style="animation-delay:-2434ms,24ms" /><circle cx="13.80" cy="3.53" r="0.45" style="animation-delay:-744ms,289ms" /><circle cx="13.80" cy="5.00" r="0.45" style="animation-delay:-850ms,265ms" /><circle cx="13.80" cy="6.47" r="0.45" style="animation-delay:-955ms,525ms" /><circle cx="13.80" cy="25.53" r="0.45" style="animation-delay:-2328ms,359ms" /><circle cx="13.80" cy="27.00" r="0.45" style="animation-delay:-2434ms,539ms" /><circle cx="13.80" cy="28.47" r="0.45" style="animation-delay:-2539ms,5ms" /><circle cx="15.27" cy="3.53" r="0.45" style="animation-delay:-850ms,9ms" /><circle cx="15.27" cy="5.00" r="0.45" style="animation-delay:-955ms,203ms" /><circle cx="15.27" cy="6.47" r="0.45" style="animation-delay:-1061ms,473ms" /><circle cx="15.27" cy="25.53" r="0.45" style="animation-delay:-2434ms,322ms" /><circle cx="15.27" cy="27.00" r="0.45" style="animation-delay:-2539ms,270ms" /><circle cx="15.27" cy="28.47" r="0.45" style="animation-delay:-2645ms,199ms" /><circle cx="16.73" cy="3.53" r="0.45" style="animation-delay:-955ms,426ms" /><circle cx="16.73" cy="5.00" r="0.45" style="animation-delay:-1061ms,218ms" /><circle cx="16.73" cy="6.47" r="0.45" style="animation-delay:-1166ms,369ms" /><circle cx="16.73" cy="25.53" r="0.45" style="animation-delay:-2539ms,161ms" /><circle cx="16.73" cy="27.00" r="0.45" style="animation-delay:-2645ms,189ms" /><circle cx="16.73" cy="28.47" r="0.45" style="animation-delay:-2750ms,241ms" /><circle cx="18.20" cy="3.53" r="0.45" style="animation-delay:-1061ms,520ms" /><circle cx="18.20" cy="5.00" r="0.45" style="animation-delay:-1166ms,586ms" /><circle cx="18.20" cy="6.47" r="0.45" style="animation-delay:-1272ms,397ms" /><circle cx="18.20" cy="25.53" r="0.45" style="animation-delay:-2645ms,411ms" /><circle cx="18.20" cy="27.00" r="0.45" style="animation-delay:-2750ms,572ms" /><circle cx="18.20" cy="28.47" r="0.45" style="animation-delay:-2856ms,468ms" /><circle cx="19.67" cy="3.53" r="0.45" style="animation-delay:-1166ms,364ms" /><circle cx="19.67" cy="5.00" r="0.45" style="animation-delay:-1272ms,232ms" /><circle cx="19.67" cy="6.47" r="0.45" style="animation-delay:-1378ms,601ms" /><circle cx="19.67" cy="25.53" r="0.45" style="animation-delay:-2750ms,374ms" /><circle cx="19.67" cy="27.00" r="0.45" style="animation-delay:-2856ms,175ms" /><circle cx="19.67" cy="28.47" r="0.45" style="animation-delay:-2962ms,246ms" /><circle cx="21.13" cy="3.53" r="0.45" style="animation-delay:-1272ms,596ms" /><circle cx="21.13" cy="5.00" r="0.45" style="animation-delay:-1378ms,326ms" /><circle cx="21.13" cy="6.47" r="0.45" style="animation-delay:-1483ms,57ms" /><circle cx="21.13" cy="25.53" r="0.45" style="animation-delay:-2856ms,307ms" /><circle cx="21.13" cy="27.00" r="0.45" style="animation-delay:-2962ms,383ms" /><circle cx="21.13" cy="28.47" r="0.45" style="animation-delay:-3067ms,478ms" /><circle cx="22.60" cy="3.53" r="0.45" style="animation-delay:-1378ms,549ms" /><circle cx="22.60" cy="5.00" r="0.45" style="animation-delay:-1483ms,19ms" /><circle cx="22.60" cy="6.47" r="0.45" style="animation-delay:-1589ms,47ms" /><circle cx="22.60" cy="25.53" r="0.45" style="animation-delay:-2962ms,80ms" /><circle cx="22.60" cy="27.00" r="0.45" style="animation-delay:-3067ms,137ms" /><circle cx="22.60" cy="28.47" r="0.45" style="animation-delay:-3173ms,350ms" /><circle cx="24.07" cy="5.00" r="0.45" style="animation-delay:-1589ms,544ms" /><circle cx="24.07" cy="6.47" r="0.45" style="animation-delay:-1694ms,610ms" /><circle cx="24.07" cy="25.53" r="0.45" style="animation-delay:-3067ms,109ms" /><circle cx="24.07" cy="27.00" r="0.45" style="animation-delay:-3173ms,563ms" /><circle cx="25.53" cy="5.00" r="0.45" style="animation-delay:-1694ms,279ms" /><circle cx="25.53" cy="6.47" r="0.45" style="animation-delay:-1800ms,506ms" /><circle cx="25.53" cy="7.93" r="0.45" style="animation-delay:-1906ms,402ms" /><circle cx="25.53" cy="9.40" r="0.45" style="animation-delay:-2011ms,104ms" /><circle cx="25.53" cy="10.87" r="0.45" style="animation-delay:-2117ms,317ms" /><circle cx="25.53" cy="12.33" r="0.45" style="animation-delay:-2222ms,341ms" /><circle cx="25.53" cy="13.80" r="0.45" style="animation-delay:-2328ms,255ms" /><circle cx="25.53" cy="15.27" r="0.45" style="animation-delay:-2434ms,691ms" /><circle cx="25.53" cy="16.73" r="0.45" style="animation-delay:-2539ms,303ms" /><circle cx="25.53" cy="18.20" r="0.45" style="animation-delay:-2645ms,534ms" /><circle cx="25.53" cy="19.67" r="0.45" style="animation-delay:-2750ms,38ms" /><circle cx="25.53" cy="21.13" r="0.45" style="animation-delay:-2856ms,672ms" /><circle cx="25.53" cy="22.60" r="0.45" style="animation-delay:-2962ms,114ms" /><circle cx="25.53" cy="24.07" r="0.45" style="animation-delay:-3067ms,686ms" /><circle cx="25.53" cy="25.53" r="0.45" style="animation-delay:-3173ms,582ms" /><circle cx="25.53" cy="27.00" r="0.45" style="animation-delay:-3278ms,61ms" /><circle cx="27.00" cy="6.47" r="0.45" style="animation-delay:-1906ms,90ms" /><circle cx="27.00" cy="7.93" r="0.45" style="animation-delay:-2011ms,624ms" /><circle cx="27.00" cy="9.40" r="0.45" style="animation-delay:-2117ms,274ms" /><circle cx="27.00" cy="10.87" r="0.45" style="animation-delay:-2222ms,681ms" /><circle cx="27.00" cy="12.33" r="0.45" style="animation-delay:-2328ms,591ms" /><circle cx="27.00" cy="13.80" r="0.45" style="animation-delay:-2434ms,482ms" /><circle cx="27.00" cy="15.27" r="0.45" style="animation-delay:-2539ms,648ms" /><circle cx="27.00" cy="16.73" r="0.45" style="animation-delay:-2645ms,213ms" /><circle cx="27.00" cy="18.20" r="0.45" style="animation-delay:-2750ms,151ms" /><circle cx="27.00" cy="19.67" r="0.45" style="animation-delay:-2856ms,454ms" /><circle cx="27.00" cy="21.13" r="0.45" style="animation-delay:-2962ms,416ms" /><circle cx="27.00" cy="22.60" r="0.45" style="animation-delay:-3067ms,501ms" /><circle cx="27.00" cy="24.07" r="0.45" style="animation-delay:-3173ms,511ms" /><circle cx="27.00" cy="25.53" r="0.45" style="animation-delay:-3278ms,95ms" /><circle cx="28.47" cy="9.40" r="0.45" style="animation-delay:-2222ms,345ms" /><circle cx="28.47" cy="10.87" r="0.45" style="animation-delay:-2328ms,156ms" /><circle cx="28.47" cy="12.33" r="0.45" style="animation-delay:-2434ms,227ms" /><circle cx="28.47" cy="13.80" r="0.45" style="animation-delay:-2539ms,28ms" /><circle cx="28.47" cy="15.27" r="0.45" style="animation-delay:-2645ms,260ms" /><circle cx="28.47" cy="16.73" r="0.45" style="animation-delay:-2750ms,284ms" /><circle cx="28.47" cy="18.20" r="0.45" style="animation-delay:-2856ms,128ms" /><circle cx="28.47" cy="19.67" r="0.45" style="animation-delay:-2962ms,180ms" /><circle cx="28.47" cy="21.13" r="0.45" style="animation-delay:-3067ms,530ms" /><circle cx="28.47" cy="22.60" r="0.45" style="animation-delay:-3173ms,430ms" /></g>
+        </svg>
+        <p class="nf-code">503</p>
+        <h1>维护中</h1>
+        <p class="sub">面板正在维护，暂时无法访问；管理员操作完成后会自动恢复，请稍后再来。</p>
+        ${annBlock}
+      </div>
+    </main>
+  </body>
+</html>
+`;
+}
 
 // Published static sites. Mounted before the JSON parser so page requests never
 // touch it, and before the SPA fallback so /s/... is never swallowed by it.
@@ -101,6 +209,7 @@ app.get('/api/config', (_req, res) => {
     panelColor: panelColor(),
     panelDescription: panelDescription(),
     captchaMode: captchaMode(),
+    maintenance: maintenanceMode(),
     publicHost: config.publicHost || null,
     publicScheme: config.publicScheme,
     // 面板自己的对外入口。addressUnset = 还没人告诉过面板它在公网上叫什么，

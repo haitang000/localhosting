@@ -89,8 +89,15 @@ export const config = {
   // 目录里多放几张方向明确（地平线、建筑、道路）的 PNG，图不在仓库里，
   // 比对就没有基准。目录里没有可解码的图时图片回正挑战无法签发。
   captchaImagesDir: (process.env.CAPTCHA_IMAGES_DIR || '').trim(),
-  // 严格模式（默认值）：每次都要求完成图片回正，不靠行为分析放行。管理后台可改，立即生效。
+  // 验证码严格程度（登录/注册/签到共用的四层防线，见 captcha.js）：
+  // normal = 行为检测、拿不准才出图；strict = 每次都出图。管理后台可改。
   captchaStrict: bool(process.env.CAPTCHA_STRICT, true),
+
+  // --- 维护模式 ---
+  // 开启后只有管理员能访问面板：非管理员的页面请求一律 503 维护页、
+  // API 一律 503 JSON，静态站点 /s/ 同样挡在外面。只作 settings 播种值，
+  // 管理后台「总览」可随时开关，改完立即生效。
+  maintenanceMode: bool(process.env.MAINTENANCE_MODE, false),
 
   // --- Docker ---
   dockerHost: process.env.DOCKER_HOST || '',

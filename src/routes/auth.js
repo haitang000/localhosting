@@ -128,7 +128,7 @@ router.post('/captcha', (req, res) => {
   if (inWindow(`ts:${req.ip}`, 10 * 60_000).length >= 60) {
     return res.status(429).json({ error: '验证请求过于频繁，请稍后再试' });
   }
-  const token = verifyChallenge(req.body?.id, req.body?.angle, req.ip);
+  const token = verifyChallenge(req.body?.id, req.body?.angle, req.ip, req.body?.pointer);
   recordWindow(`ts:${req.ip}`);
   if (!token) return res.status(400).json({ error: '图片旋转验证未通过，请重试' });
   res.json({ token });

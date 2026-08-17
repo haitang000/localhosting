@@ -96,9 +96,11 @@ function leadingZeroBits(hex) {
  *   - 路径长度与耗时
  *
  * 满分 8 分。通过线由 createTurnstile 每次随机浮动；这里只负责打原始分
- * 和判「铁定是机器」（返回 0 的那些情况）。
+ * 和判「铁定是机器」（返回 0 的那些情况）。isTouch 时放宽跟触屏硬件特性
+ * 撞车的判据：touchmove 由触摸控制器驱动、采样间隔天然均匀，这条在鼠标
+ * 尺度上才是脚本特征。
  */
-export function analyzeTrajectory(points) {
+export function analyzeTrajectory(points, isTouch) {
   if (!Array.isArray(points) || points.length < 5) return 0;
 
   const n = points.length;
@@ -119,11 +121,13 @@ export function analyzeTrajectory(points) {
   if (pathLen < 60) return 0;
 
   // 逐段间隔全部近乎相等 = 固定频率采样 = 脚本特征
-  const dts = segs.map((s) => s.dt).filter((d) => d > 0);
-  if (dts.length >= 5) {
-    const dm = dts.reduce((a, b) => a + b, 0) / dts.length;
-    const spread = (Math.max(...dts) - Math.min(...dts)) / dm;
-    if (spread < 0.01) return 0;
+  if (!isTouch) {
+    const dts = segs.map((s) => s.dt).filter((d) => d > 0);
+    if (dts.length >= 5) {
+      const dm = dts.reduce((a, b) => a + b, 0) / dts.length;
+      const spread = (Math.max(...dts) - Math.min(...dts)) / dm;
+      if (spread < 0.01) return 0;
+    }
   }
 
   // 弯曲度
@@ -277,6 +281,15 @@ if (!puzzles.length) {
 
 const challengeStore = new Map(); // id -> { answer, ip, createdAt, tries, expires }
 
+/** 作废某 IP 手上所有未解的旧题。每次重发新题前调用，防止攒满
+ *  captchaMaxChallengesPerIp 后新题签不出来、验证静默失效（客户端拿不到
+ *  challenge，提交时才发现没 token）。 */
+function retireChallenges(ip) {
+  for (const [k, v] of challengeStore) {
+    if (v.ip === ip && v.expires > Date.now()) challengeStore.delete(k);
+  }
+}
+
 /** 签发一张回正挑战。每 IP 未解的挑战数有上限，防止并行穷举。
  *  发题前先 obscurePuzzle：随机裁剪 + 缩放 + 像素噪声，让挑战图和公开的
  *  原题图在像素层对不上号 —— 拿原图旋转后逐角度比对的脚本会在这里失手。 */
@@ -314,8 +327,11 @@ export function angleDiff(a, b) {
     角度约定：服务端把照片按 answer 顺时针旋转（CSS 正角 = 顺时针），
     用户把它转回正位 = 逆时针 answer，即 CSS 顺时针 (360 − answer) 度，
     提交的正是这个值。所以这里跟 −answer 比，跟 +answer 比只有
-    answer≈0/180 时碰巧能过 —— 那就是「明明回正了却验证失败」的来源。 */
-export function verifyChallenge(id, angle, ip) {
+    answer≈0/180 时碰巧能过 —— 那就是「明明回正了却验证失败」的来源。
+
+    触屏手指拖拽精度天然低于鼠标，pointer 标成 touch/pen 时容差放宽几度。
+    脚本要过这关靠的是图像识别拿准角度，放宽这点容差对它没意义。 */
+export function verifyChallenge(id, angle, ip, pointer) {
   if (!id || typeof angle !== 'number' || !Number.isFinite(angle)) return null;
   const rec = challengeStore.get(id);
   if (!rec || rec.expires < Date.now()) {
@@ -327,7 +343,11 @@ export function verifyChallenge(id, angle, ip) {
     return null;
   }
   if (Date.now() - rec.createdAt < config.captchaMinSolveMs) return null;
-  if (Math.abs(angleDiff(angle, -rec.answer)) > config.captchaTolerance) {
+  const tol =
+    pointer === 'touch' || pointer === 'pen'
+      ? Math.min(config.captchaTolerance + 4, 15)
+      : config.captchaTolerance;
+  if (Math.abs(angleDiff(angle, -rec.answer)) > tol) {
     rec.tries -= 1;
     if (rec.tries <= 0) challengeStore.delete(id);
     return null;
@@ -372,33 +392,56 @@ export function verifyTurnstile(token, ip) {
  *   - 有提供项落在不确定区（无明确失败）→ { challenge: { id, image } }
  *   - 任一提供项明确失败或没给数据  → null（调用方 400）
  * 通过线每次随机浮动；失败记入该 IP 的声誉，提高后续 PoW 难度。
+ *
+ * 触屏设备单独处理：页面滚动会把手指动作录成近乎垂直、采样均匀的直线，
+ * 点按又只有两三个点——在鼠标尺度下这些全像脚本。所以触屏信号只当「人类
+ * 证据」用（高分 → 直接发 token），弱信号一律不判死、不 400，交图片挑战
+ * 兜底：真人能解，脚本还得过一轮图片关。
  */
 export function createTurnstile(trajectory, formBehavior, hints, ip) {
-  if (!trajectory && !formBehavior) return null;
+  const touch = !!hints && (hints.coarse || hints.pointer === 'touch' || hints.pointer === 'pen');
   if (!plausibleHints(hints) || (trajectory && !plausibleTrajectory(trajectory, hints))) {
     recordReputation(ip);
     return null;
   }
 
-  if (captchaStrict()) {
-    // 严格模式：行为分析不看了，每次都要求完成图片回正。
-    // 先把该 IP 未解的旧题作废 —— 否则攒满每 IP 上限后新题签不出来，
-    // 验证会静默失效（客户端拿不到 challenge，提交时才发现没 token）。
-    for (const [k, v] of challengeStore) {
-      if (v.ip === ip && v.expires > Date.now()) challengeStore.delete(k);
-    }
+  // 发新题前先作废旧题：不管哪条路走到挑战，手上都只留一道未解的题，
+  // 否则连取消几道题就能把每 IP 上限占满，之后的请求全被静默挡掉。
+  const issue = () => {
+    retireChallenges(ip);
     const ch = createChallenge(ip);
     if (!ch) {
       recordReputation(ip);
       return null;
     }
     return { challenge: ch };
+  };
+
+  if (!trajectory && !formBehavior) {
+    // 桌面端两个信号都缺 = 铁定没交互（键盘流只能靠表单，表单也没有 → 400）。
+    // 触屏端信号稀疏是常态：密码管理器自动填充 + 点一下按钮，轨迹和击键
+    // 都可能凑不齐门槛，直接发挑战让真人过图，而不是把人卡在 400 上。
+    return touch ? issue() : null;
+  }
+
+  if (captchaStrict()) {
+    // 严格模式：行为分析不看了，每次都要求完成图片回正。
+    return issue();
   }
 
   const trajPass = 4 + (Math.random() < 0.5 ? 1 : 0); // 4 或 5
   const trajUncertain = 2 + (Math.random() < 0.5 ? 1 : 0); // 2 或 3
   const formPass = 3 + (Math.random() < 0.5 ? 1 : 0); // 3 或 4
   const formUncertain = 1 + (Math.random() < 0.5 ? 1 : 0); // 1 或 2
+
+  if (touch) {
+    // 任一信号拿到人类级高分就直接放行；都弱（或缺失）就发图片挑战兜底。
+    const human =
+      (trajectory && analyzeTrajectory(trajectory, true) >= trajPass) ||
+      (formBehavior && analyzeFormBehavior(formBehavior) >= formPass);
+    if (human) return { token: mintToken(ip) };
+    return issue();
+  }
 
   let uncertain = false;
   if (trajectory) {
@@ -418,14 +461,7 @@ export function createTurnstile(trajectory, formBehavior, hints, ip) {
     if (s < formPass) uncertain = true;
   }
 
-  if (uncertain) {
-    const ch = createChallenge(ip);
-    if (!ch) {
-      recordReputation(ip);
-      return null;
-    }
-    return { challenge: ch };
-  }
+  if (uncertain) return issue();
 
   return { token: mintToken(ip) };
 }

@@ -492,7 +492,13 @@ async function getPowProof(onProgress) {
   return { prefix: p.prefix, nonce };
 }
 
-/** 浏览器环境自报信号：屏幕/缩放/时区/语言/画布哈希，服务端只做合理性校验。 */
+/* 上次实际使用的指针类型：验证服务端据此区分触屏/鼠标的处理尺度。
+   触屏设备也会派发合成 mouse 事件，所以只在 pointer/touch 事件里记账。 */
+let lastPointerType = null;
+document.addEventListener('pointerdown', (e) => (lastPointerType = e.pointerType), { passive: true });
+document.addEventListener('touchstart', () => (lastPointerType = 'touch'), { passive: true });
+
+/** 浏览器环境自报信号：屏幕/缩放/时区/语言/画布哈希/指针类型，服务端只做合理性校验。 */
 function getHints() {
   const h = {
     dpr: window.devicePixelRatio || 1,
@@ -500,6 +506,8 @@ function getHints() {
     sh: window.screen?.height || 0,
     tz: new Date().getTimezoneOffset(),
     lang: (navigator.languages?.length ? navigator.languages : [navigator.language]).slice(0, 8),
+    pointer: lastPointerType || (matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse'),
+    coarse: matchMedia('(pointer: coarse)').matches,
   };
   try {
     const c = document.createElement('canvas');
@@ -536,9 +544,15 @@ function solveRotatePuzzle(challenge) {
       <div class="puzzle-stage" id="puzzle-stage" tabindex="0" role="slider" aria-label="旋转图片"
            aria-valuemin="0" aria-valuemax="359" aria-valuenow="0" aria-valuetext="0 度">
         <span class="puzzle-notch" aria-hidden="true"></span>
+        <span class="puzzle-needle" aria-hidden="true"></span>
         <img class="puzzle-img" src="${esc(challenge.image)}" alt="旋转验证图片" draggable="false" />
       </div>
       <input type="range" id="puzzle-slider" class="puzzle-range" min="0" max="359" step="1" value="0" aria-label="旋转图片角度" />
+      <div class="puzzle-steppers">
+        <button type="button" class="ghost" data-nudge="-15" aria-label="逆时针旋转15度">−15°</button>
+        <span class="puzzle-deg" data-deg aria-live="polite">0°</span>
+        <button type="button" class="ghost" data-nudge="15" aria-label="顺时针旋转15度">+15°</button>
+      </div>
       <div class="err" id="puzzle-err"></div>
       <div class="row" style="justify-content:flex-end;margin-top:8px">
         <button class="ghost" data-cancel>取消</button>
@@ -557,6 +571,8 @@ function solveRotatePuzzle(challenge) {
 
     const stage = dlg.querySelector('#puzzle-stage');
     const img = dlg.querySelector('.puzzle-img');
+    const needle = dlg.querySelector('.puzzle-needle');
+    const degEl = dlg.querySelector('[data-deg]');
     const errEl = dlg.querySelector('#puzzle-err');
     const doneBtn = dlg.querySelector('[data-done]');
     const slider = dlg.querySelector('#puzzle-slider');
@@ -564,11 +580,14 @@ function solveRotatePuzzle(challenge) {
       deg = Number(slider.value);
       paint();
     };
+    dlg.querySelectorAll('[data-nudge]').forEach((b) => (b.onclick = () => nudge(Number(b.dataset.nudge))));
 
     const norm = (d) => ((d % 360) + 360) % 360;
     const paint = () => {
       img.style.transform = `rotate(${deg}deg)`;
+      needle.style.transform = `rotate(${deg}deg)`;
       slider.value = Math.round(deg);
+      degEl.textContent = `${Math.round(deg)}°`;
       stage.setAttribute('aria-valuenow', Math.round(deg));
       stage.setAttribute('aria-valuetext', `${Math.round(deg)} 度`);
     };
@@ -618,7 +637,7 @@ function solveRotatePuzzle(challenge) {
       try {
         const r = await api('/auth/captcha', {
           method: 'POST',
-          body: { id: challenge.id, angle: Math.round(deg) },
+          body: { id: challenge.id, angle: Math.round(deg), pointer: getHints().pointer },
         });
         finish(r.token);
       } catch (err) {
@@ -708,6 +727,127 @@ function setTurnstileLabel(el, label, text) {
   }, swapMs);
 }
 
+/* ---- 触屏友好的轨迹采集 ----
+   鼠标设备：整页采集 mousemove —— 抖动、弯曲度、速度波动是鼠标特有的自然信号。
+   触屏设备：touchmove 只在手指按住时触发，滚动页面会把手指动作录成一条近乎
+   垂直、采样均匀的直线，整条送上去会被轨迹分析当成脚本。所以触屏改成按手势
+   分段采集，只挑「终点落在验证按钮附近、又够短」的那一段轻拖动送出去；纯点按
+   只有两三个点，够不着分析门槛就交回表单行为（打字节拍）判断。 */
+function setupTurnstileTracking(anchorEl) {
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const hasPointer = 'PointerEvent' in window;
+  const gestures = []; // 触屏手势段（粗指针设备）
+  const traj = []; // 鼠标轨迹（细指针设备）
+  let cur = null; // 正在采集的手势段
+
+  const push = (arr, e) => {
+    const t = Date.now();
+    const last = arr[arr.length - 1];
+    if (last && t <= last.t) return; // 时间戳必须严格递增
+    const p = e.touches?.[0] ?? e.changedTouches?.[0] ?? e;
+    if (!p || !Number.isFinite(p.clientX)) return;
+    arr.push({ x: Math.round(p.clientX), y: Math.round(p.clientY), t });
+  };
+  const start = (e) => { cur = []; push(cur, e); };
+  const move = (e) => { if (cur && cur.length < 500) push(cur, e); };
+  const end = (e) => {
+    if (!cur) return;
+    push(cur, e);
+    if (cur.length >= 2) {
+      gestures.push(cur);
+      if (gestures.length > 8) gestures.shift();
+    }
+    cur = null;
+  };
+
+  const onPointerDown = (e) => {
+    lastPointerType = e.pointerType || lastPointerType;
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') start(e);
+    else push(traj, e);
+  };
+  const onPointerMove = (e) => {
+    lastPointerType = e.pointerType || lastPointerType;
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') move(e);
+    else push(traj, e);
+  };
+  const onPointerEnd = (e) => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') end(e);
+    else push(traj, e);
+  };
+  const onTouchStart = (e) => start(e);
+  const onTouchMove = (e) => move(e);
+  const onTouchEnd = (e) => end(e);
+  // 触屏结束后浏览器会补发一套兼容 mouse 事件；刚碰完屏的这段合成移动
+  // 不能当成鼠标轨迹，否则又会把直线滚动污染进分析数据。
+  const onMouseMove = (e) => {
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
+    lastPointerType = 'mouse';
+    push(traj, e);
+  };
+
+  if (hasPointer) {
+    document.addEventListener('pointerdown', onPointerDown, { passive: true });
+    document.addEventListener('pointermove', onPointerMove, { passive: true });
+    document.addEventListener('pointerup', onPointerEnd, { passive: true });
+    document.addEventListener('pointercancel', onPointerEnd, { passive: true });
+  } else {
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    document.addEventListener('touchcancel', onTouchEnd, { passive: true });
+  }
+  if (!coarse) document.addEventListener('mousemove', onMouseMove, { passive: true });
+
+  const sample = (arr) => {
+    const firstT = arr[0].t;
+    const step = Math.max(1, Math.floor(arr.length / 100));
+    const out = [];
+    for (let i = 0; i < arr.length; i += step) out.push({ x: arr[i].x, y: arr[i].y, t: arr[i].t - firstT });
+    return out;
+  };
+
+  function getTrajectory() {
+    if (coarse) {
+      if (!anchorEl) return null;
+      const rect = anchorEl.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      // 从最近的手势往回找：终点落在按钮附近、路径别太长（长 = 滚动）、
+      // 采样点够分析门槛。
+      for (let i = gestures.length - 1; i >= 0; i--) {
+        const g = gestures[i];
+        const last = g[g.length - 1];
+        if (Math.hypot(last.x - cx, last.y - cy) > 160) continue;
+        let len = 0;
+        for (let k = 1; k < g.length; k++) len += Math.hypot(g[k].x - g[k - 1].x, g[k].y - g[k - 1].y);
+        if (len > 320 || g.length < 5) continue;
+        return sample(g);
+      }
+      return null;
+    }
+    if (traj.length < 5) return null;
+    return sample(traj);
+  }
+
+  const cleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown);
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerEnd);
+    document.removeEventListener('pointercancel', onPointerEnd);
+    document.removeEventListener('touchstart', onTouchStart);
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('touchend', onTouchEnd);
+    document.removeEventListener('touchcancel', onTouchEnd);
+    document.removeEventListener('mousemove', onMouseMove);
+  };
+
+  return { getTrajectory, cleanup };
+}
+
+/* 当前登录页/签到弹窗的轨迹跟踪实例：页面重绘（登录↔注册切换）时先摘掉
+   旧监听，不然每次切换都叠一层。 */
+let activeTurnstileTracking = null;
+
 /**
  * `fresh` means we are arriving at this screen, not just toggling 登录/注册 on
  * it — only then does the mark light itself up. Flipping the tab rebuilds the
@@ -756,7 +896,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       }
       ${
         state.cfg?.terms
-          ? `<label class="agree"><input type="checkbox" name="agree" required />
+          ? `<label class="agree"><span class="switch"><input type="checkbox" name="agree" required /><span class="knob"></span></span>
              <span>我已阅读并同意<a href="/terms" data-terms>《用户协议》</a></span></label>`
           : ''
       }
@@ -810,44 +950,9 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
     ripple.addEventListener('animationend', () => ripple.remove());
   }
 
-  // 鼠标/触摸轨迹追踪（点击也算一个采样点：有些人不动鼠标光用键盘）
-  let trajCleanup = null;
-  if (trajCleanup) trajCleanup();
-  const trajPoints = [];
-  const onMove = (e) => {
-    if (trajPoints.length >= 500) return;
-    const t = Date.now();
-    const last = trajPoints[trajPoints.length - 1];
-    if (last && t <= last.t) return; // 时间戳必须严格递增，重复点会整条判脚本
-    trajPoints.push({
-      x: Math.round(e.clientX ?? e.touches?.[0]?.clientX ?? 0),
-      y: Math.round(e.clientY ?? e.touches?.[0]?.clientY ?? 0),
-      t,
-    });
-  };
-  document.addEventListener('mousemove', onMove, { passive: true });
-  document.addEventListener('touchmove', onMove, { passive: true });
-  document.addEventListener('pointerdown', onMove, { passive: true });
-  document.addEventListener('pointerup', onMove, { passive: true });
-  trajCleanup = () => {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('touchmove', onMove);
-    document.removeEventListener('pointerdown', onMove);
-    document.removeEventListener('pointerup', onMove);
-  };
-
-  function getTrajectory() {
-    if (trajPoints.length < 5) return null;
-    const firstT = trajPoints[0].t;
-    const maxPts = 100;
-    const step = Math.max(1, Math.floor(trajPoints.length / maxPts));
-    const sampled = [];
-    for (let i = 0; i < trajPoints.length; i += step) {
-      const p = trajPoints[i];
-      sampled.push({ x: p.x, y: p.y, t: p.t - firstT });
-    }
-    return sampled;
-  }
+  // 鼠标/触摸轨迹追踪（触屏按手势分段采集，见 setupTurnstileTracking）
+  activeTurnstileTracking?.cleanup?.();
+  activeTurnstileTracking = setupTurnstileTracking(turnstileEl);
 
   // 表单填写行为追踪
   const fb = { fields: {}, startTime: Date.now(), focusOrder: [] };
@@ -901,7 +1006,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
         const pow = await getPowProof();
         const data = await api('/auth/turnstile', {
           method: 'POST',
-          body: { trajectory: getTrajectory(), formBehavior: getFormBehavior(), hints: getHints(), pow },
+          body: { trajectory: activeTurnstileTracking?.getTrajectory() ?? null, formBehavior: getFormBehavior(), hints: getHints(), pow },
         });
         // 行为分析落在不确定区：弹窗让人把图片回正，解完才有 token。
         if (data.challenge) {
@@ -963,6 +1068,8 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       if (state.cfg?.terms && fd.agree) fd.termsVersion = state.cfg.terms.version;
       delete fd.agree;
       const { user, welcomePoints } = await api(`/auth/${mode}`, { method: 'POST', body: fd });
+      activeTurnstileTracking?.cleanup?.();
+      activeTurnstileTracking = null;
       state.user = user;
       location.hash = '#/instances';
       await boot();
@@ -1027,6 +1134,21 @@ function renderDisabled({ username } = {}) {
     state.disabled = null;
     renderAuth();
   };
+}
+
+/* ---------------- maintenance ---------------- */
+/* 维护模式：面板还活着但对外关闭。非管理员（含未登录）只看到这一页，
+   管理员自己不受影响；服务端对非管理员的所有页面/API 也是 503。 */
+function renderMaintenance() {
+  clearTimers();
+  app.className = 'auth-wrap';
+  app.innerHTML = `
+    <div class="statemark">${icon('wrench', { title: '维护中' })}</div>
+    <div class="card auth stopped">
+      <h1>维护中</h1>
+      <div class="sub">${icon('info')}面板正在维护，暂时无法访问。</div>
+      <p class="note">管理员操作完成后会自动恢复，请稍后再来。</p>
+    </div>`;
 }
 
 /* ---------------- shell ---------------- */
@@ -1854,42 +1976,8 @@ async function openCheckin() {
   let turnstileToken = null;
   let verifying = false;
 
-  /* Track mouse/touch inside the dialog for behavior analysis */
-  const traj = [];
-  const onMove = (e) => {
-    if (traj.length >= 500) return;
-    const t = Date.now();
-    const last = traj[traj.length - 1];
-    if (last && t <= last.t) return; // 时间戳必须严格递增
-    traj.push({
-      x: Math.round(e.clientX ?? e.touches?.[0]?.clientX ?? 0),
-      y: Math.round(e.clientY ?? e.touches?.[0]?.clientY ?? 0),
-      t,
-    });
-  };
-  document.addEventListener('mousemove', onMove, { passive: true });
-  document.addEventListener('touchmove', onMove, { passive: true });
-  document.addEventListener('pointerdown', onMove, { passive: true });
-  document.addEventListener('pointerup', onMove, { passive: true });
-  const trajCleanup = () => {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('touchmove', onMove);
-    document.removeEventListener('pointerdown', onMove);
-    document.removeEventListener('pointerup', onMove);
-  };
-
-  const getTrajectory = () => {
-    if (traj.length < 5) return null;
-    const firstT = traj[0].t;
-    const maxPts = 100;
-    const step = Math.max(1, Math.floor(traj.length / maxPts));
-    const sampled = [];
-    for (let i = 0; i < traj.length; i += step) {
-      const p = traj[i];
-      sampled.push({ x: p.x, y: p.y, t: p.t - firstT });
-    }
-    return sampled;
-  };
+  /* 轨迹追踪（触屏按手势分段采集，见 setupTurnstileTracking） */
+  const tracking = setupTurnstileTracking(turnstileEl);
 
   const createRipple = (e) => {
     const rect = turnstileEl.getBoundingClientRect();
@@ -1921,7 +2009,7 @@ async function openCheckin() {
       const pow = await getPowProof();
       const data = await api('/auth/turnstile', {
         method: 'POST',
-        body: { trajectory: getTrajectory(), hints: getHints(), pow },
+        body: { trajectory: tracking.getTrajectory(), hints: getHints(), pow },
       });
       // 行为分析落在不确定区：弹窗让人把图片回正，解完才有 token。
       if (data.challenge) {
@@ -1964,14 +2052,14 @@ async function openCheckin() {
 
   dlg.querySelector('[data-close]').onclick = () => dlg.close();
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
-  dlg.onclose = () => { trajCleanup(); dlg.remove(); };
+  dlg.onclose = () => { tracking.cleanup(); dlg.remove(); };
 
   submitBtn.onclick = async () => {
     submitBtn.disabled = true;
     errEl.textContent = '';
     try {
       const r = await api('/checkin', { method: 'POST', body: { turnstileToken } });
-      trajCleanup();
+      tracking.cleanup();
       dlg.innerHTML = `
         <div class="checkin-done">
           <div style="font-size:48px;color:var(--success);margin-bottom:12px">${icon('circle-check')}</div>
@@ -2946,9 +3034,9 @@ function sleepFieldHtml(t, saved = {}) {
   const on = blocked ? false : (saved.sleepEnabled ?? cfg.defaultOn);
   return `<div class="field">
       <label class="row" style="gap:8px">
-        <input type="checkbox" name="sleepEnabled" style="width:auto" ${on ? 'checked' : ''} ${
+        <span class="switch"><input type="checkbox" name="sleepEnabled" ${on ? 'checked' : ''} ${
           blocked ? 'disabled' : ''
-        } />
+        } /><span class="knob"></span></span>
         <span>${icon('moon')}闲时休眠 —— 没人用就自动停，有人访问再自动起</span>
       </label>
       <div class="row" style="gap:8px;margin-top:8px;align-items:center">
@@ -2973,7 +3061,7 @@ function cfTunnelFieldHtml(t) {
   const blocked = none || udpOnly;
   return `<div class="field">
       <label class="row" style="gap:8px">
-        <input type="checkbox" name="autoTunnel" style="width:auto" ${blocked ? 'disabled' : ''} />
+        <span class="switch"><input type="checkbox" name="autoTunnel" ${blocked ? 'disabled' : ''} /><span class="knob"></span></span>
         <span>${icon('cloud')}自动穿透 —— 自动建 Cloudflare 隧道，免手动配置</span>
       </label>
       <div class="hint">${
@@ -2993,9 +3081,9 @@ function sleepCardHtml(i) {
   return `<div class="card">
       ${cat('moon', '闲时休眠', { flush: true })}
       <label class="row" style="gap:8px">
-        <input type="checkbox" id="sleep-toggle" style="width:auto" ${s.enabled ? 'checked' : ''} ${
+        <span class="switch"><input type="checkbox" id="sleep-toggle" ${s.enabled ? 'checked' : ''} ${
           locked ? 'disabled' : ''
-        } />
+        } /><span class="knob"></span></span>
         <span>没人访问就停掉容器，有人连上来再自动启动</span>
       </label>
       <div class="row" style="gap:8px;margin-top:12px;align-items:center">
@@ -3215,7 +3303,7 @@ async function viewInstance(id) {
         <div class="row" style="margin-bottom:10px">
           <button class="small" id="reload-logs">${icon('refresh-cw')}刷新</button>
           <label class="row" style="gap:6px;font-size:13px;color:var(--default-500)">
-            <input type="checkbox" id="follow" style="width:auto" /> ${icon('activity')}实时跟随
+            <span class="switch"><input type="checkbox" id="follow" /><span class="knob"></span></span> ${icon('activity')}实时跟随
           </label>
         </div>
         <pre class="logs" id="logbox">${loader({ inline: true })}</pre>
@@ -6043,9 +6131,9 @@ function pendingCard(i) {
     ${
       state.cfg?.cfTunnel
         ? `<label class="row" style="gap:8px;margin-top:12px;align-items:flex-start">
-             <input type="checkbox" id="autotunnel-${esc(i.id)}" style="width:auto;margin-top:3px" ${
+             <span class="switch" style="margin-top:3px"><input type="checkbox" id="autotunnel-${esc(i.id)}" ${
              i.ports.every((p) => p.protocol === 'udp') ? 'disabled' : ''
-           } />
+           } /><span class="knob"></span></span>
              <span>${icon('cloud')}自动创建 Cloudflare Tunnel —— 不手动配穿透，自动分配
                <code>https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}</code> 并填好地址
                ${i.ports.some((p) => p.protocol === 'udp') ? '（UDP 端口无法走隧道）' : ''}</span>
@@ -6119,6 +6207,20 @@ async function viewAdmin() {
                  <span>${icon('hard-drive')}数据卷占用</span></div></div>`
             : ''
         }
+      </div>
+      <div class="card" style="margin-top:16px">
+        ${cat('wrench', '维护模式', { flush: true })}
+        <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <label class="row" style="gap:8px;align-items:center">
+            <span class="switch"><input type="checkbox" id="maint-toggle" ${
+              state.cfg?.maintenance ? 'checked' : ''
+            } /><span class="knob"></span></span>
+            <span>${icon('power')}对外关闭面板：非管理员访问一律 503 维护页，管理员不受影响</span>
+          </label>
+          <button class="primary" id="maint-save">${icon('save')}保存</button>
+          <div class="err" id="maint-err" style="min-height:0"></div>
+        </div>
+        <div class="hint" style="margin-top:8px">升级、备份、调整配置时开着它，外面的人进不来；改完立即生效。</div>
       </div>
       <div class="card" style="margin-top:16px">
         ${cat('sparkles', '品牌设置', { flush: true })}
@@ -6279,7 +6381,7 @@ async function viewAdmin() {
                 }" />
                 <div class="hint">模板需要几个端口，券就至少要给几个</div></label>
               <label class="field"><span>&nbsp;</span>
-                <label class="row" style="gap:6px;padding-top:9px"><input type="checkbox" name="allowCustomImage" style="width:auto" /> ${icon(
+                <label class="row" style="gap:6px;padding-top:9px"><span class="switch"><input type="checkbox" name="allowCustomImage" /><span class="knob"></span></span> ${icon(
                   'puzzle'
                 )}允许用自定义镜像</label></label>
             </div>
@@ -6347,7 +6449,7 @@ async function viewAdmin() {
               <input name="stock" type="number" min="0" max="1000000" placeholder="留空 = 不限量" />
               <div class="hint">每建一个实例扣 1 份，扣完自动售罄；驳回 / 创建失败 / 删除实例时退 1 份</div></label>
             <label class="field"><span>状态</span>
-              <label class="row" style="gap:6px;padding-top:9px"><input type="checkbox" name="enabled" checked style="width:auto" /> 上架（支付页可见）</label></label>
+              <label class="row" style="gap:6px;padding-top:9px"><span class="switch"><input type="checkbox" name="enabled" checked /><span class="knob"></span></span> 上架（支付页可见）</label></label>
           </div>
           <input type="hidden" name="id" />
           <div class="row" style="gap:8px">
@@ -6482,8 +6584,8 @@ async function viewAdmin() {
                 <option value="info">信息</option><option value="warning">提醒</option><option value="critical">重要</option>
               </select></label>
             <label class="field"><span>${icon('eye')}状态</span>
-              <label class="row" style="gap:6px;padding-top:9px"><input type="checkbox" name="active" checked style="width:auto" /> 立即生效</label>
-              <label class="row" style="gap:6px"><input type="checkbox" name="dismissible" checked style="width:auto" /> 允许用户关闭</label></label>
+              <label class="row" style="gap:6px;padding-top:9px"><span class="switch"><input type="checkbox" name="active" checked /><span class="knob"></span></span> 立即生效</label>
+              <label class="row" style="gap:6px"><span class="switch"><input type="checkbox" name="dismissible" checked /><span class="knob"></span></span> 允许用户关闭</label></label>
           </div>
           <div class="two">
             <label class="field"><span>${icon('clock')}开始时间（留空立即）</span>
@@ -6707,6 +6809,25 @@ function wireAdmin(refresh) {
     };
   }
 
+  // 维护模式开关：改完立即生效，管理员自己不受影响。
+  const maintSave = document.getElementById('maint-save');
+  if (maintSave) {
+    maintSave.onclick = async () => {
+      const errEl = document.getElementById('maint-err');
+      errEl.textContent = '';
+      try {
+        const { maintenance } = await api('/admin/maintenance', {
+          method: 'POST',
+          body: { enabled: document.getElementById('maint-toggle').checked },
+        });
+        state.cfg = { ...(state.cfg || {}), maintenance };
+        toast(maintenance ? '维护模式已开启，非管理员已被请出' : '维护模式已关闭', 'ok');
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    };
+  }
+
   // 面板名称 / 主题色：改完刷新配置并重绘，顶栏 / 登录页 / 标签标题跟着变；
   // 主题色即时应用到当前页面（CSS 变量 + favicon）。
   const panelNameSave = document.getElementById('panel-name-save');
@@ -6924,12 +7045,12 @@ function wireAdmin(refresh) {
           <label class="field"><span>${icon('key-round')}重置密码（留空不改）</span>
             <input name="newPassword" type="text" placeholder="至少 8 位" /></label>
           <div class="row" style="margin-bottom:14px">
-            <label class="row" style="gap:6px"><input type="checkbox" name="allowCustomImage" style="width:auto" ${
+            <label class="row" style="gap:6px"><span class="switch"><input type="checkbox" name="allowCustomImage" ${
               u.quota.allowCustomImage ? 'checked' : ''
-            } /> ${icon('puzzle')}允许自定义镜像</label>
-            <label class="row" style="gap:6px"><input type="checkbox" name="disabled" style="width:auto" ${
+            } /><span class="knob"></span></span> ${icon('puzzle')}允许自定义镜像</label>
+            <label class="row" style="gap:6px"><span class="switch"><input type="checkbox" name="disabled" ${
               u.disabled ? 'checked' : ''
-            } /> ${icon('ban')}停用账号</label>
+            } /><span class="knob"></span></span> ${icon('ban')}停用账号</label>
           </div>
            <button class="small ghost" id="reset-checkin" style="margin-top:4px">${icon('calendar')}重置今日签到</button>
            <div class="row"><button value="cancel" class="ghost">${icon('x')}取消</button>
@@ -7108,7 +7229,8 @@ function route() {
     clearTimers();
     // 停用页优先于任何路由：hash 是可以随手改的，别让它绕回面板。
     if (state.disabled) return renderDisabled(state.disabled);
-    if (!state.user) return renderAuth();
+  if (state.cfg?.maintenance && state.user?.role !== 'admin') return renderMaintenance();
+  if (!state.user) return renderAuth();
     const parts = location.hash.replace(/^#\/?/, '').split('/');
     const section = parts[0] || 'instances';
     const arg = parts[1];

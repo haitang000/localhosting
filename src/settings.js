@@ -13,6 +13,7 @@ export function seedSettings() {
     panel_color: config.panelColor,
     panel_description: config.panelDescription,
     captcha_mode: config.captchaStrict ? 'strict' : 'normal',
+    maintenance_mode: config.maintenanceMode ? '1' : '0',
   };
   const get = db.prepare('SELECT value FROM settings WHERE key = ?');
   const ins = db.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
@@ -47,6 +48,11 @@ export function panelColor() {
 /** 站点描述（SEO）：首页 <meta name="description"> 的出处。 */
 export function panelDescription() {
   return getSetting('panel_description', config.panelDescription);
+}
+
+/** 维护模式：开启后非管理员一律 503。管理后台可开关，立即生效。 */
+export function maintenanceMode() {
+  return getSetting('maintenance_mode', config.maintenanceMode ? '1' : '0') === '1';
 }
 
 /** 验证码严格程度：normal = 行为检测、拿不准才出图；strict = 每次都出图。 */

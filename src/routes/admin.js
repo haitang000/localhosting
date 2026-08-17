@@ -11,7 +11,7 @@ import { refundPoints, spendPoints } from '../points.js';
 import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
-import { panelName, panelColor, panelDescription, setSetting, captchaMode } from '../settings.js';
+import { panelName, panelColor, panelDescription, setSetting, captchaMode, maintenanceMode } from '../settings.js';
 import * as cftunnel from '../cftunnel.js';
 
 export const router = Router();
@@ -510,6 +510,14 @@ router.patch('/settings', (req, res) => {
     panelDescription: panelDescription(),
     captchaMode: captchaMode(),
   });
+});
+
+/** 维护模式开关：开启后非管理员访问一律 503，管理员照常使用。改完立即生效。 */
+router.post('/maintenance', (req, res) => {
+  const on = Boolean(req.body?.enabled);
+  setSetting('maintenance_mode', on ? '1' : '0');
+  audit(req.user, 'admin.maintenance', null, on ? '开启' : '关闭');
+  res.json({ maintenance: maintenanceMode() });
 });
 
 // ---------- 积分套餐 ----------
