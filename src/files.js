@@ -159,6 +159,7 @@ export async function list(row, dirRaw) {
 
   const res = await dk.execCollect(row.container_id, ['/bin/sh', '-c', LIST_SCRIPT, 'sh', dir], {
     limitBytes: 4 << 20,
+    timeoutMs: 20_000,
   });
   if (res.exitCode === 126 || res.exitCode === 127 || /no such file|not found/i.test(res.stderr)) {
     throw bad('这个镜像里没有 /bin/sh，没法浏览它的文件');
@@ -211,7 +212,7 @@ async function statOne(row, target) {
   const res = await dk.execCollect(
     row.container_id,
     ['/bin/sh', '-c', 'stat -c "%a %u %g %F" -- "$1" 2>/dev/null || exit 9', 'sh', target],
-    { limitBytes: 4096 }
+    { limitBytes: 4096, timeoutMs: 8000 }
   );
   const m = /^(\d+) (\d+) (\d+) (.*)$/m.exec(res.stdout.trim());
   if (!m) return null;
@@ -465,7 +466,13 @@ export async function upload(row, user, dirRaw, rawFiles) {
 async function run(row, script, args, what) {
   const res = await dk.execCollect(row.container_id, ['/bin/sh', '-c', script, 'sh', ...args], {
     limitBytes: 8192,
+    // 没有超时的话，一个挂在巨型目录上的 mv/rm 会把 HTTP 请求和 Docker 流
+    // 一起无限期拖住；软超时到期返回已收到的输出。
+    timeoutMs: 60_000,
   });
+  if (res.timedOut) {
+    throw bad(`${what}超时：容器没有在时限内完成操作，稍后重试或到控制台里手动执行`);
+  }
   if (res.exitCode !== 0) {
     const detail = res.stderr.split('\n')[0]?.replace(/^[^:]*: /, '') || `退出码 ${res.exitCode}`;
     throw bad(`${what}失败：${detail}`);

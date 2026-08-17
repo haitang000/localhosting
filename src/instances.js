@@ -145,7 +145,11 @@ export async function createInstance(user, body) {
     });
     if (body.volumePath) {
       const vp = String(body.volumePath).trim();
-      if (!vp.startsWith('/')) throw bad('数据卷挂载路径必须是绝对路径');
+      // 白名单而不是黑名单：这个值后面会被拼进 sh 命令（RCON 参数读取、
+      // latest.log tail），引号 / $ / 分号一类字符在这里就没有存在的理由。
+      if (!vp.startsWith('/') || vp === '/') throw bad('数据卷挂载路径必须是绝对路径，且不能是根目录');
+      if (vp.length > 100) throw bad('数据卷挂载路径过长');
+      if (!/^[\w./-]+$/.test(vp)) throw bad('数据卷挂载路径只能包含字母、数字、下划线、点、连字符和 /');
       volumePaths = [vp];
     }
   }

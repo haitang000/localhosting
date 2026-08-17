@@ -199,7 +199,9 @@ app.get('/api/health', async (_req, res) => {
     const v = await dk.ping();
     res.json({ ok: true, docker: { version: v.Version, api: v.ApiVersion, os: v.Os, arch: v.Arch } });
   } catch (err) {
-    res.status(503).json({ ok: false, error: `无法连接 Docker：${err.message}` });
+    // 错误细节（管道名 / socket 路径 / 连接栈）只进服务端日志，不透给匿名访客。
+    console.warn('[health] Docker 连接失败：', err.message);
+    res.status(503).json({ ok: false, error: '无法连接 Docker' });
   }
 });
 

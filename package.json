@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "compression": "^1.8.1",
-    "dockerode": "^4.0.9",
+    "dockerode": "^5.0.1",
     "express": "^5.1.0",
     "marked": "^18.0.7"
   }

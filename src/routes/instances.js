@@ -166,7 +166,9 @@ router.post('/:id/minecraft/command', async (req, res) => {
   const propsPath = JSON.parse(row.volume_paths_json || '[]')[0] || '/data';
   const props = await dk.execCollect(
     row.container_id,
-    ['sh', '-c', `grep -E '^rcon\\.(password|port)=' "${propsPath}/server.properties" 2>/dev/null || true`],
+    // 路径走位置参数（$1），不拼进命令串 —— 老实例的 volumePath 可能带引号等
+    // 特殊字符，拼接就是容器内 shell 注入。
+    ['sh', '-c', `grep -E '^rcon\\.(password|port)=' "$1/server.properties" 2>/dev/null || true`, 'sh', propsPath],
     { timeoutMs: 3000 }
   );
   const kv = {};
@@ -220,7 +222,8 @@ router.get('/:id/minecraft/logs/stream', async (req, res) => {
 
   let stream;
   try {
-    ({ stream } = await dk.execStream(row.container_id, ['sh', '-c', `exec tail -F -n 200 "${logPath}"`], { tty: false }));
+    // 同上：日志路径走位置参数，不做字符串拼接。
+    ({ stream } = await dk.execStream(row.container_id, ['sh', '-c', 'exec tail -F -n 200 -- "$1"', 'sh', logPath], { tty: false }));
   } catch {
     releaseHold();
     return sayClosed('无法附加到服务器日志');

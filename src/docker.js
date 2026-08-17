@@ -166,11 +166,74 @@ export const restartContainer = act((c) => c.restart({ t: 10 }));
 export const killContainer = act((c) => c.kill());
 export const removeContainer = act((c) => c.remove({ force: true, v: false }));
 
-export async function getLogs(containerId, tail = 200) {
-  const buf = await docker
-    .getContainer(containerId)
-    .logs({ stdout: true, stderr: true, tail, timestamps: false });
-  return demux(buf);
+/* 一次性读日志必须走流：follow:false 时 docker-modem 会把 daemon 的整个
+   响应聚成一个 Buffer 才交出来，一条几百 MB 的无换行日志能把面板直接
+   拖进 OOM。这里直接向 modem 要流、边收边数，累计到上限就掐断连接 ——
+   内存占用封顶在 LOGS_CAP_BYTES，而不是容器日志文件的大小。 */
+const LOGS_CAP_BYTES = 2 * 1024 * 1024;
+const LOGS_TIMEOUT_MS = 15_000;
+
+export function getLogs(containerId, tail = 200) {
+  return new Promise((resolve, reject) => {
+    docker.modem.dial(
+      {
+        path: `/containers/${containerId}/logs?`,
+        method: 'GET',
+        options: { stdout: true, stderr: true, tail, timestamps: false, follow: false },
+        isStream: true,
+        statusCodes: { 200: true, 404: 'no such container', 500: 'server error' },
+      },
+      (err, stream) => {
+        if (err) return reject(err);
+        const out = new PassThrough();
+        const errOut = new PassThrough();
+        docker.modem.demuxStream(stream, out, errOut);
+
+        const chunks = [];
+        let len = 0;
+        let truncated = false;
+        let settled = false;
+        const take = (src) =>
+          src.on('data', (c) => {
+            if (len >= LOGS_CAP_BYTES) {
+              truncated = true;
+              stream.destroy();
+              return;
+            }
+            if (len + c.length > LOGS_CAP_BYTES) {
+              c = c.subarray(0, LOGS_CAP_BYTES - len);
+              truncated = true;
+            }
+            chunks.push(c);
+            len += c.length;
+          });
+        take(out);
+        take(errOut);
+
+        const timer = setTimeout(() => {
+          truncated = true;
+          stream.destroy();
+          finish();
+        }, LOGS_TIMEOUT_MS);
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          let text = Buffer.concat(chunks).toString('utf8');
+          if (truncated) text += '\n（日志过长，已截断）';
+          resolve(text);
+        };
+        stream.on('end', finish);
+        stream.on('close', finish);
+        stream.on('error', (e) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(e);
+        });
+      }
+    );
+  });
 }
 
 /** Docker multiplexes stdout/stderr with an 8-byte header per frame. */
