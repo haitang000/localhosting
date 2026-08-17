@@ -868,7 +868,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
     <form class="card auth">
       <h1>${esc(brand)}</h1>
       <div class="sub">一键部署属于你自己的容器服务</div>
-      <div class="switch">
+      <div class="auth-mode-switch">
         <button type="button" data-mode="login" class="${mode === 'login' ? 'on' : ''}">${icon(
           'log-in'
         )}登录</button>
@@ -899,7 +899,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       }
       ${
         state.cfg?.terms
-          ? `<label class="agree"><span class="switch"><input type="checkbox" name="agree" required /><span class="knob"></span></span>
+          ? `<label class="agree"><input type="checkbox" name="agree" required />
              <span>我已阅读并同意<a href="/terms" data-terms>《用户协议》</a></span></label>`
           : ''
       }

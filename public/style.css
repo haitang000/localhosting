@@ -1020,7 +1020,7 @@ textarea {
   margin: 0 0 4px;
 }
 /* Same solid-tabs treatment as the header nav. */
-.auth .switch {
+.auth .auth-mode-switch {
   display: flex;
   gap: 2px;
   background: var(--default-100);
@@ -1028,7 +1028,7 @@ textarea {
   padding: 4px;
   margin: 24px 0 20px;
 }
-.auth .switch button {
+.auth .auth-mode-switch button {
   flex: 1;
   background: transparent;
   color: var(--default-500);
@@ -1037,11 +1037,11 @@ textarea {
   font-weight: 400;
   border-radius: var(--radius-sm);
 }
-.auth .switch button:hover:not(.on) {
+.auth .auth-mode-switch button:hover:not(.on) {
   background: transparent;
   color: var(--foreground);
 }
-.auth .switch button.on {
+.auth .auth-mode-switch button.on {
   background: var(--content1);
   box-shadow: var(--shadow-sm);
   color: var(--foreground);
@@ -4435,7 +4435,7 @@ dialog.terms .terms-doc {
   .auth .sub {
     display: none;
   }
-  .auth .switch {
+  .auth .auth-mode-switch {
     margin: 14px 0 12px;
   }
 }
