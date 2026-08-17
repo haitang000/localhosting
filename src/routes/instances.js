@@ -7,6 +7,7 @@ import * as dk from '../docker.js';
 import * as svc from '../instances.js';
 import * as term from '../console.js';
 import * as sleeper from '../sleeper.js';
+import * as guard from '../guard.js';
 import { history, subscribe } from '../events.js';
 
 export const router = Router();
@@ -128,6 +129,13 @@ router.post('/:id/console', async (req, res) => {
 /** Keystrokes / a whole command line going to the shell's stdin. */
 router.post('/:id/console/input', (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
+  // 危险操作预警：敲进容器的命令过一遍特征库。只记录不拦截，也绝不
+  // 因为预警系统自己出问题影响控制台 —— try/catch 吞掉一切。
+  try {
+    guard.scanText(row, req.body?.data, 'console');
+  } catch {
+    /* 预警失败不影响输入 */
+  }
   const sess = term.get(req.body?.sid, row, req.user);
   term.write(sess, String(req.body?.data ?? ''));
   res.json({ ok: true });

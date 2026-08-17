@@ -11,6 +11,7 @@ import { consumeBundleStock, refundBundleStock } from './bundles.js';
 import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
+import * as guard from './guard.js';
 import * as term from './console.js';
 import * as cftunnel from './cftunnel.js';
 
@@ -297,6 +298,11 @@ export async function createInstance(user, body) {
     refundBundleStock(bundleId);
     throw new HttpError(503, err.message);
   }
+
+  // 危险操作预警：创建参数（镜像 / 命令 / 环境变量 / 备注）过一遍特征库。
+  // 只记录不拦截 —— 待审批的申请本来就要管理员过目，预警页多一条线索而已；
+  // 管理员自己开的实例跳过了队列，这条预警就是唯一会留下痕迹的地方。
+  guard.scanCreate({ id, user_id: user.id, name }, { image, cmd, env, volumePath: body.volumePath, note: body.note });
 
   audit(
     user,
@@ -586,9 +592,11 @@ export async function serialize(row, { withState = true, owner } = {}) {
   const ownerName = owner ?? db.prepare('SELECT username FROM users WHERE id = ?').get(row.user_id)?.username ?? '?';
 
   // A sleeping or archived container looks "exited" to Docker — say what it
-  // really is. Archived wins over everything: it is a terminal state.
+  // really is. Archived wins over everything: it is a terminal state. Banned
+  // likewise: the container is parked by the admin, not merely stopped.
   let status = state ? state.status : row.status;
   if (row.status === 'archived') status = 'archived';
+  else if (row.status === 'banned') status = 'banned';
   else if (sleeper.isWaking(row.id)) status = 'waking';
   else if (row.status === 'sleeping' && !state?.running) status = 'sleeping';
   return {
@@ -664,6 +672,14 @@ export async function action(row, what, user) {
   if (row.status === 'archived') {
     throw bad('这个实例的有效期已过，已被封存，不能再启动；数据卷还留着，删除实例才会清掉');
   }
+  if (row.status === 'banned') {
+    throw new HttpError(
+      403,
+      user.role === 'admin'
+        ? '这个实例因违规被封禁，先在管理后台解封才能操作'
+        : '这个实例因违规操作被封禁，无法启动或停止；如有疑问请联系管理员'
+    );
+  }
   if (!row.container_id) throw bad('容器还未创建完成');
   const parked = row.status === 'sleeping';
   switch (what) {
@@ -708,6 +724,7 @@ export async function action(row, what, user) {
 export async function setSleep(row, user, { enabled, idleMinutes } = {}) {
   if (row.status === 'pending' || row.status === 'rejected') throw bad('这个实例还没有创建容器');
   if (row.status === 'archived') throw bad('这个实例已封存，休眠设置没有意义了');
+  if (row.status === 'banned') throw new HttpError(403, '这个实例因违规被封禁，休眠设置不可用');
   if (!config.idleSleepEnabled) throw bad('管理员没有开启闲时休眠功能');
 
   const on = Boolean(enabled);
@@ -788,6 +805,7 @@ export async function destroy(row, user, { keepVolume = false } = {}) {
 export async function renewInstance(row, user, days) {
   if (!row.life_days) throw bad('这个实例没有有效期，不需要续期');
   if (row.status === 'pending' || row.status === 'rejected') throw bad('这个实例还没有创建容器');
+  if (row.status === 'banned') throw new HttpError(403, '这个实例因违规被封禁，不能续期；如有疑问请联系管理员');
   if (row.status === 'archived' && !lifespan.isInGrace(row)) {
     const ret = config.archiveRetentionDays
       ? `封存已超过 ${config.archiveRetentionDays} 天宽限期，数据已无法恢复`
@@ -873,13 +891,75 @@ export async function downloadArchive(row, user) {
   return { stream, filename: `${name}.tar`, contentType: 'application/x-tar' };
 }
 
+/**
+ * 封禁实例（预警处置 / 管理员手动）：停掉容器、关掉控制台会话，状态转为
+ * banned —— 一个不随重启漂移的管理员裁决，此后启动/重启/续期/休眠全部被拒，
+ * 直到你 unbanInstance。容器和数据卷原样留着（证据 + 可解封），端口也继续
+ * 占着（释放了别人就能复用，而这条记录还指向它）；真要清理走正常的删除流程。
+ */
+export async function banInstance(row, admin, reason) {
+  if (row.status === 'pending' || row.status === 'rejected') {
+    throw bad('这个实例还没有创建容器，没有可封禁的东西；直接驳回申请即可');
+  }
+  if (row.status === 'archived') throw bad('这个实例已封存，无需再封禁');
+  if (row.status === 'banned') return; // 幂等：重复点封禁不报错也不重复审计
+
+  term.closeForInstance(row.id, '实例已被封禁');
+  await sleeper.release(row.id);
+  if (row.container_id) {
+    try {
+      await dk.stopContainer(row.container_id);
+    } catch (err) {
+      if (err.statusCode !== 404 && err.statusCode !== 304) throw err;
+    }
+  }
+  const note = `因检测到违规操作（${reason || '危险行为'}），已被管理员封禁`;
+  db.prepare("UPDATE instances SET status = 'banned', error = ? WHERE id = ?").run(note, row.id);
+  emit(row.id, note, 'error');
+  audit(admin, 'instance.ban', row.name, reason || null);
+}
+
+/** 解封：容器回到普通的「已停止」，想跑再自己启动。 */
+export function unbanInstance(row, admin) {
+  if (row.status !== 'banned') throw bad('这个实例没有被封禁');
+  db.prepare("UPDATE instances SET status = 'stopped', error = NULL WHERE id = ?").run(row.id);
+  emit(row.id, '管理员已解封这个实例，容器可以重新启动', 'log');
+  audit(admin, 'instance.unban', row.name, null);
+}
+
+/**
+ * 停掉某个用户名下所有在跑的实例（封禁用户时调用）。只停不删：删实例会
+ * 退积分 / 券，被处罚的人不应该拿回任何东西，那由管理员之后逐个决定。
+ * 返回停掉的实例数。
+ */
+export async function stopAllInstancesOf(userId) {
+  const rows = db
+    .prepare(
+      "SELECT * FROM instances WHERE user_id = ? AND container_id IS NOT NULL AND status IN ('running', 'sleeping')"
+    )
+    .all(userId);
+  for (const row of rows) {
+    try {
+      term.closeForInstance(row.id, '账号已被封禁');
+      await sleeper.release(row.id);
+      await dk.stopContainer(row.container_id);
+      db.prepare("UPDATE instances SET status = 'stopped', error = NULL WHERE id = ?").run(row.id);
+    } catch (err) {
+      emit(row.id, `封禁用户时停止容器失败：${err.message}`, 'error');
+    }
+  }
+  return rows.length;
+}
+
 /** Reconciles DB rows with what Docker actually reports (called on boot). */
 export async function reconcile() {
   const rows = db.prepare('SELECT * FROM instances').all();
   for (const row of rows) {
     // Archived is terminal: it says "this instance's time is up", which is a
-    // fact about the voucher, not about what Docker currently reports.
-    if (row.status === 'archived') continue;
+    // fact about the voucher, not about what Docker currently reports. Banned
+    // is the same kind of administrative verdict — Docker says "exited", but
+    // that must not quietly un-ban it on the next reboot.
+    if (row.status === 'archived' || row.status === 'banned') continue;
     if (!row.container_id) {
       // Approved but the panel died mid-build: put it back in the queue so an
       // admin can simply approve it again.

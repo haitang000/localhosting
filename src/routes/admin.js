@@ -10,6 +10,7 @@ import { publicInvite } from '../invites.js';
 import { refundPoints, spendPoints } from '../points.js';
 import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
+import * as guard from '../guard.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
 import { panelName, panelColor, panelDescription, setSetting, captchaMode, maintenanceMode } from '../settings.js';
 import * as cftunnel from '../cftunnel.js';
@@ -393,6 +394,71 @@ router.patch('/instances/:id/addresses', async (req, res) => {
 router.patch('/instances/:id/expiry', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
   svc.setExpiry(row, req.user, req.body?.expiresAt);
+  res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
+});
+
+// ---------- 危险操作预警 ----------
+// Guard 特征库命中的记录（挖矿进程、控制台命令、创建参数、上传文件名）。
+// status：open（默认，只看没处理的）/ resolved / all。
+router.get('/alerts', (req, res) => {
+  const status = req.query.status === 'resolved' || req.query.status === 'all' ? req.query.status : 'open';
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const where = status === 'all' ? '' : `WHERE a.status = '${status}'`;
+  const alerts = db
+    .prepare(`SELECT a.* FROM alerts a ${where} ORDER BY a.id DESC LIMIT ?`)
+    .all(limit);
+  const openCount = db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE status = 'open'").get().c;
+  res.json({ alerts, openCount, rules: guard.ruleList() });
+});
+
+/**
+ * 处置一条预警：ignore（忽略）/ ban_instance（封禁实例）/ ban_user（封禁用户，
+ * 停掉其所有实例 + 停用账号）。处置即结案 —— 状态、动作、经办人一并记下。
+ */
+router.post('/alerts/:id/resolve', async (req, res) => {
+  const alert = db.prepare('SELECT * FROM alerts WHERE id = ?').get(Number(req.params.id));
+  if (!alert) return res.status(404).json({ error: '预警不存在' });
+  if (alert.status === 'resolved') return res.status(400).json({ error: '这条预警已经处理过了' });
+  const action = req.body?.action;
+  if (!['ignore', 'ban_instance', 'ban_user'].includes(action)) {
+    return res.status(400).json({ error: '处置动作无效' });
+  }
+
+  if (action === 'ban_instance') {
+    const row = alert.instance_id ? db.prepare('SELECT * FROM instances WHERE id = ?').get(alert.instance_id) : null;
+    if (!row) return res.status(404).json({ error: '涉事实例已不存在（可能已被删除），请选择忽略' });
+    await svc.banInstance(row, req.user, alert.label);
+  } else if (action === 'ban_user') {
+    const user = alert.user_id ? db.prepare('SELECT * FROM users WHERE id = ?').get(alert.user_id) : null;
+    if (!user) return res.status(404).json({ error: '涉及用户已不存在，请选择忽略' });
+    if (user.id === req.user.id) return res.status(400).json({ error: '不能封禁你自己' });
+    if (user.role === 'admin') {
+      const admins = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get().c;
+      if (admins <= 1) return res.status(400).json({ error: '至少要保留一个管理员' });
+    }
+    const stopped = await svc.stopAllInstancesOf(user.id);
+    db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(user.id);
+    audit(req.user, 'admin.alert_ban_user', user.username, `停用账号并停止 ${stopped} 个实例（预警：${alert.label}）`);
+  }
+
+  db.prepare(
+    "UPDATE alerts SET status = 'resolved', action = ?, resolved_by = ?, resolved_at = ? WHERE id = ?"
+  ).run(action, req.user.username, now(), alert.id);
+  if (action !== 'ban_user') {
+    audit(
+      req.user,
+      `admin.alert_${action}`,
+      alert.username,
+      `实例 ${alert.instance_name || '—'}：${alert.label}`
+    );
+  }
+  res.json({ ok: true });
+});
+
+/** 解封被预警处置封禁的实例（也可用于任何 banned 状态的实例）。 */
+router.post('/instances/:id/unban', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  svc.unbanInstance(row, req.user);
   res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
 });
 

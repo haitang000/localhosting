@@ -102,6 +102,7 @@ function finish(sess, note, kind = 'ended') {
 async function spawn(row, user, { shell = 'auto', cols = 100, rows = 30 }) {
   // 封存和休眠都是「容器停着」，但只有休眠该被一次访问叫醒。
   if (row.status === 'archived') throw bad(400, '实例已封存，容器不会再启动，控制台也就连不上了');
+  if (row.status === 'banned') throw bad(403, '实例因违规操作被封禁，控制台不可用；如有疑问请联系管理员');
   let state = await dk.containerState(row.container_id);
   if (!state.running && row.status === 'sleeping') {
     await sleeper.wake(row.id, '打开控制台');

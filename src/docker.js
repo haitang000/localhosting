@@ -264,6 +264,13 @@ export function followLogs(containerId, onChunk, tail = 100) {
     });
 }
 
+/** Process list of a running container (`docker top`), one cmdline string per
+ *  process — feeds the security guard's periodic mining scan. */
+export async function containerTop(containerId) {
+  const t = await docker.getContainer(containerId).top({ psargs: ['-ef'] });
+  return (t.Processes || []).map((cols) => cols.join(' '));
+}
+
 export async function getStats(containerId) {
   const s = await docker.getContainer(containerId).stats({ stream: false });
   const cpuDelta = s.cpu_stats.cpu_usage.total_usage - (s.precpu_stats.cpu_usage?.total_usage ?? 0);

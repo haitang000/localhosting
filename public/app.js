@@ -124,6 +124,7 @@ async function syncMe() {
   if (me.user) state.user = me.user;
   state.usage = me.usage;
   state.pendingCount = me.pendingCount ?? 0;
+  state.alertCount = me.alertCount ?? 0;
   state.onboarding = me.onboarding ?? null;
   state.announcements = me.announcements ?? [];
   celebrateOnboarding();
@@ -148,6 +149,7 @@ const STATUS_TEXT = {
   sleeping: '休眠中',
   waking: '唤醒中…',
   archived: '已封存',
+  banned: '已封禁',
   paused: '已暂停',
   dead: '异常',
   missing: '容器丢失',
@@ -168,6 +170,7 @@ const STATUS_ICON = {
   sleeping: 'moon',
   waking: 'sunrise',
   archived: 'archive',
+  banned: 'ban',
   paused: 'square',
   dead: 'triangle-alert',
   missing: 'circle-alert',
@@ -1345,6 +1348,12 @@ function shell(active, inner) {
                 active === 'admin' ? ' aria-current="page"' : ''
               }>${icon('shield')}管理后台${
                 state.pendingCount ? ` <span class="badge pending">${state.pendingCount}</span>` : ''
+              }${
+                // 危险预警比待审批更急：红色角标。手机上藏在标签页里（绝对定位
+                // 的话会跟待审批角标叠在一起），进后台首屏就是预警页的数字。
+                state.alertCount
+                  ? ` <span class="badge dangercnt" title="未处理的危险预警">${icon('triangle-alert')}${state.alertCount}</span>`
+                  : ''
               }</a>`
             : ''
         }
@@ -2088,6 +2097,22 @@ function wireInstanceActions(refresh) {
         try {
           await api(`/instances/${b.dataset.id}/action/${b.dataset.act}`, { method: 'POST' });
           toast('操作已执行', 'ok');
+          await refresh();
+        } catch (e) {
+          toast(e.message, 'err');
+          b.disabled = false;
+        }
+      })
+  );
+  // 管理员解封因预警被封禁的实例：容器回到普通的已停止状态。
+  app.querySelectorAll('[data-unban]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm('解封这个实例？属主将可以重新启动容器。')) return;
+        b.disabled = true;
+        try {
+          await api(`/admin/instances/${b.dataset.unban}/unban`, { method: 'POST' });
+          toast('已解封，实例回到已停止状态', 'ok');
           await refresh();
         } catch (e) {
           toast(e.message, 'err');
@@ -3161,6 +3186,15 @@ async function viewInstance(id) {
             : ''
         }
         ${
+          i.status === 'banned'
+            ? `<div class="card" style="box-shadow:var(--shadow-sm),0 0 0 2px var(--danger)">
+                 ${cat('ban', '实例已被封禁', { flush: true })}
+                 <div class="err">${icon('triangle-alert')}${esc(i.error || '检测到危险操作（如挖矿），管理员已封禁这个实例。')}</div>
+                 <div class="sub" style="margin-top:8px">容器已停止且无法启动，日志与文件管理仍可查看历史内容；如有疑问请联系管理员。</div>
+               </div>`
+            : ''
+        }
+        ${
           i.status !== 'archived' && expiringSoon(i.life)
             ? `<div class="card" style="box-shadow:var(--shadow-sm),0 0 0 2px var(--warning)">
                  ${cat('hourglass', '快到有效期了', { flush: true })}
@@ -3286,7 +3320,7 @@ async function viewInstance(id) {
             ${i.state?.exitCode ? `<span>${icon('power')}退出码 ${i.state.exitCode}</span>` : ''}
           </div>
           ${i.note ? `<div class="hint">${icon('scroll-text')}备注：${esc(i.note)}</div>` : ''}
-        ${!waiting && i.status !== 'archived' && i.sleep?.available ? sleepCardHtml(i) : ''}
+         ${!waiting && i.status !== 'archived' && i.status !== 'banned' && i.sleep?.available ? sleepCardHtml(i) : ''}
         ${
           envRows
             ? `<div class="card">${cat('settings', '环境变量', { flush: true })}
@@ -3389,6 +3423,12 @@ async function viewInstance(id) {
                 : '宽限期已过，数据已永久删除。'
             }</p>
         </div>`
+          : i.status === 'banned'
+            ? `<div class="card term-empty">
+          ${icon('ban', { cls: 'lg' })}
+          <h3>实例已被封禁</h3>
+          <p class="sub">${esc(i.error || '因检测到违规操作，管理员已封禁这个实例。')}<br />容器无法启动，如有疑问请联系管理员。</p>
+        </div>`
           : `<div class="card term-empty">
           ${icon('terminal', { cls: 'lg' })}
           <h3>容器没在运行</h3>
@@ -3421,9 +3461,13 @@ async function viewInstance(id) {
                      <button class="small" data-dl="${esc(i.id)}">${icon('download')}下载数据</button>`
                     : i.status === 'archived'
                     ? ''
-                    : i.status === 'creating'
-                      ? ''
-                      : i.status === 'running'
+                    : i.status === 'banned'
+                      ? state.user.role === 'admin'
+                        ? `<button class="small" data-unban="${esc(i.id)}">${icon('undo-2')}解封</button>`
+                        : ''
+                      : i.status === 'creating'
+                        ? ''
+                        : i.status === 'running'
                     ? `${i.life?.days ? `<button class="primary small" data-renew="${esc(i.id)}"
                         data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
                         data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
@@ -6149,6 +6193,9 @@ async function viewAdmin() {
   // How many audit rows the 操作日志 tab is currently showing; null = the default
   // for this screen size. Lives out here so 再看 40 条 survives the repaint.
   let auditShown = null;
+  // 预警页的过滤器：open（待处理）/ resolved（已处理）。放在外层，切过滤
+  // 重绘不丢状态。
+  let alertFilter = 'open';
   // 后台标签页切换也走异步 paint：连点两个标签时，慢的那个晚到会盖住新的。
   // 每个 paint 领一个序号，画之前对不上号就放弃。
   let paintSeq = 0;
@@ -6177,6 +6224,59 @@ async function viewAdmin() {
         : `<div class="card empty"><div class="big">${icon(
             'inbox'
           )}</div>没有待审批的申请。</div>`;
+    } else if (tab === 'alerts') {
+      const { alerts, openCount } = await api(`/admin/alerts?status=${alertFilter}`);
+      state.alertCount = openCount;
+      const srcText = { process: '进程扫描', console: '控制台输入', create: '创建参数', upload: '上传文件名' };
+      const actionText = { ignore: '已忽略', ban_instance: '已封禁实例', ban_user: '已封禁用户' };
+      const alertCard = (a) => `<div class="card" style="margin-bottom:14px${a.status === 'resolved' ? ';opacity:.72' : ''}">
+        <div class="row" style="align-items:flex-start;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+              <span class="badge error">${icon('triangle-alert')}${esc(a.label)}</span>
+              <span class="sub">${esc(srcText[a.source] || a.source)}</span>
+              ${
+                a.status === 'open'
+                  ? a.seen_count > 1
+                    ? `<span class="badge warning">已连续命中 ${a.seen_count} 次</span>`
+                    : ''
+                  : `<span class="badge info">${icon('check')}${esc(actionText[a.action] || '已处理')}</span>`
+              }
+            </div>
+            <div style="margin-top:10px">
+              <b>${esc(a.username)}</b>${a.instance_id ? ` · <a class="mono" href="#/i/${esc(a.instance_id)}">${esc(a.instance_name || a.instance_id.slice(0, 8))}</a>` : ` · <span class="mono sub">${esc(a.instance_name || '（实例已删除）')}</span>`}
+              <span class="sub"> · ${when(a.first_seen_at)}${a.seen_count > 1 ? `，最近一次 ${when(a.last_seen_at)}` : ''}</span>
+            </div>
+            <pre class="mono" style="margin:10px 0 0;padding:10px 12px;background:var(--default-100);border-radius:var(--radius-sm);max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all">${esc(a.detail || '')}</pre>
+          </div>
+          ${
+            a.status === 'open'
+              ? `<div class="row" style="flex-direction:column;gap:8px;align-items:stretch">
+                  <button class="small danger" data-aban-i="${a.id}" data-user="${esc(a.username)}"
+                    data-inst="${esc(a.instance_name || '')}">${icon('ban')}封禁实例</button>
+                  <button class="small danger" data-aban-u="${a.id}" data-user="${esc(a.username)}">${icon('ban')}封禁用户</button>
+                  <button class="small ghost" data-aignore="${a.id}">${icon('check')}忽略</button>
+                </div>`
+              : `<div class="sub" style="min-width:120px;text-align:right">由 ${esc(a.resolved_by || '?')} 处理<br />${when(a.resolved_at)}</div>`
+          }
+        </div>
+      </div>`;
+      body = `<div class="tabbar" style="margin-bottom:14px">
+          <button data-afilter="open" class="${alertFilter === 'open' ? 'on' : ''}">${icon('triangle-alert')}待处理${openCount ? ` (${openCount})` : ''}</button>
+          <button data-afilter="resolved" class="${alertFilter === 'resolved' ? 'on' : ''}">${icon('check')}已处理</button>
+        </div>
+        ${
+          alertFilter === 'open'
+            ? `<div class="hint" style="margin-bottom:14px">${icon('info')}面板会持续扫描运行中容器的进程、控制台输入、创建参数和上传文件名，命中挖矿等危险特征时记在这里。<b>只记录不打扰用户</b> —— 由你裁决：封禁实例（停容器、禁启动，保留数据和证据）、封禁用户（停用账号并停止其全部实例）、或误报就忽略。</div>`
+            : ''
+        }
+        ${
+          alerts.length
+            ? alerts.map(alertCard).join('')
+            : `<div class="card empty"><div class="big">${icon(alertFilter === 'open' ? 'circle-check' : 'inbox')}</div>${
+                alertFilter === 'open' ? '没有待处理的危险预警。' : '还没有已处理的预警记录。'
+              }</div>`
+        }`;
     } else if (tab === 'overview') {
       const o = await api('/admin/overview');
       const d = o.docker?.error;
@@ -6632,11 +6732,12 @@ async function viewAdmin() {
     }
 
     // Built after the body so the pending badge reflects what was just loaded.
-    const nav = ['pending', 'overview', 'users', 'invites', 'bundles', 'instances', 'sites', 'announcements', 'audit']
+    const nav = ['pending', 'alerts', 'overview', 'users', 'invites', 'bundles', 'instances', 'sites', 'announcements', 'audit']
       .filter((t) => t !== 'sites' || state.cfg?.sites?.enabled)
       .map((t) => {
         const { label, ico } = {
           pending: { label: '待审批', ico: 'inbox' },
+          alerts: { label: '预警', ico: 'triangle-alert' },
           overview: { label: '总览', ico: 'gauge' },
           users: { label: '用户', ico: 'users' },
           invites: { label: '邀请码', ico: 'ticket' },
@@ -6646,7 +6747,12 @@ async function viewAdmin() {
           announcements: { label: '公告', ico: 'info' },
           audit: { label: '操作日志', ico: 'history' },
         }[t];
-        const n = t === 'pending' && state.pendingCount ? ` (${state.pendingCount})` : '';
+        const n =
+          t === 'pending' && state.pendingCount
+            ? ` (${state.pendingCount})`
+            : t === 'alerts' && state.alertCount
+              ? ` (${state.alertCount})`
+              : '';
         return `<button data-atab="${t}" class="${tab === t ? 'on' : ''}">${icon(
           ico
         )}${label}${n}</button>`;
@@ -6678,6 +6784,14 @@ async function viewAdmin() {
         paint();
       };
     }
+    app.querySelectorAll('[data-afilter]').forEach(
+      (b) =>
+        (b.onclick = () => {
+          if (alertFilter === b.dataset.afilter) return;
+          alertFilter = b.dataset.afilter;
+          paint();
+        })
+    );
     app.querySelectorAll('[data-copy]').forEach((el) => (el.onclick = () => copy(el.dataset.copy)));
     wireInstanceActions(paint);
     wireAdmin(paint);
@@ -6720,6 +6834,57 @@ function wireAdmin(refresh) {
         try {
           await api(`/admin/instances/${b.dataset.reject}/reject`, { method: 'POST', body: { reason } });
           toast('已驳回，积分 / 券已退回', 'ok');
+          await refresh();
+        } catch (e) {
+          toast(e.message, 'err');
+          b.disabled = false;
+        }
+      })
+  );
+
+  /* ---- 危险预警处置：封禁实例 / 封禁用户 / 忽略 ---- */
+  app.querySelectorAll('[data-aban-i]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm(`封禁实例「${b.dataset.inst || '(已删除)'}」？容器立即停止且无法再启动（数据保留、可解封），属主 ${b.dataset.user} 会看到封禁提示。`))
+          return;
+        b.disabled = true;
+        try {
+          await api(`/admin/alerts/${b.dataset.abanI}/resolve`, { method: 'POST', body: { action: 'ban_instance' } });
+          toast('实例已封禁', 'ok');
+          await refresh();
+        } catch (e) {
+          toast(e.message, 'err');
+          b.disabled = false;
+        }
+      })
+  );
+
+  app.querySelectorAll('[data-aban-u]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm(`封禁用户「${b.dataset.user}」？账号立即停用（登录后只看到停用页），其全部运行中的实例也会一并停止。`))
+          return;
+        b.disabled = true;
+        try {
+          await api(`/admin/alerts/${b.dataset.abanU}/resolve`, { method: 'POST', body: { action: 'ban_user' } });
+          toast('用户已封禁', 'ok');
+          await refresh();
+        } catch (e) {
+          toast(e.message, 'err');
+          b.disabled = false;
+        }
+      })
+  );
+
+  app.querySelectorAll('[data-aignore]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm('忽略这条预警？它会被标记为已处理（误报也建议留着记录）。')) return;
+        b.disabled = true;
+        try {
+          await api(`/admin/alerts/${b.dataset.aignore}/resolve`, { method: 'POST', body: { action: 'ignore' } });
+          toast('已忽略', 'ok');
           await refresh();
         } catch (e) {
           toast(e.message, 'err');

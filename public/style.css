@@ -590,7 +590,8 @@ nav.tabs a.active {
 .badge.error,
 .badge.rejected,
 .badge.missing,
-.badge.dead {
+.badge.dead,
+.badge.banned {
   color: var(--danger);
   background: var(--danger-flat);
 }
@@ -602,6 +603,14 @@ nav.tabs a.active {
   color: var(--primary-strong);
   background: var(--primary-flat);
 }
+/* 危险预警角标（顶栏「管理后台」旁）：实心红，和待审批的实心主色一档 ——
+   它和 .badge.pending 一样骑在角落上、靠描边从导航底色里切出来。 */
+.badge.dangercnt {
+  color: #fff;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--content1);
+}
+
 /* 封存是终点，不是故障：灰得比休眠更实，但不用报错的红。 */
 .badge.archived {
   color: var(--default-50);
@@ -3769,6 +3778,11 @@ dialog.terms .terms-doc {
   }
   nav.tabs a.active .badge.pending {
     box-shadow: 0 0 0 2px var(--content1);
+  }
+  /* 手机上预警角标也走绝对定位会跟待审批角标叠在一处；藏掉它 —— 管理后台
+     预警页的标签数字还在，只是顶栏不重复这一条。 */
+  nav.tabs .badge.dangercnt {
+    display: none;
   }
   /* The username gives way, the 退出 button never does — it used to be pushed
      clean off the right edge by a long name, with no way to scroll to it. */

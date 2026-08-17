@@ -246,10 +246,16 @@ router.get('/me', (req, res) => {
     req.user.role === 'admin'
       ? db.prepare("SELECT COUNT(*) AS c FROM instances WHERE status = 'pending'").get().c
       : db.prepare("SELECT COUNT(*) AS c FROM instances WHERE status = 'pending' AND user_id = ?").get(req.user.id).c;
+  // 未处理的危险预警数（只有管理员会有角标）
+  const alertCount =
+    req.user.role === 'admin'
+      ? db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE status = 'open'").get().c
+      : 0;
   res.json({
     user: publicUser(req.user),
     usage: usage(req.user.id),
     pendingCount,
+    alertCount,
     onboarding: publicOnboarding(req.user),
     announcements: announcements.listActive(),
   });

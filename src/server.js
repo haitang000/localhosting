@@ -15,6 +15,7 @@ import * as dk from './docker.js';
 import * as sleeper from './sleeper.js';
 import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
+import * as guard from './guard.js';
 import * as cftunnel from './cftunnel.js';
 import { sweepOrphanDirs } from './sites.js';
 import { TERMS_VERSION, TERMS_UPDATED, TERMS_HTML } from './terms.js';
@@ -471,6 +472,8 @@ const server = app.listen(config.port, config.host, async () => {
     await lifespan.start();
     await sleeper.start();
     await diskguard.start();
+    // 危险操作预警：定期扫容器进程 + 各检测点已经在路由里挂好
+    await guard.start();
     // 面板重启后把断掉的 cloudflared 进程拉起来（看护循环在里面）
     cftunnel.start();
   } catch (err) {
@@ -485,6 +488,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     sleeper.stop().catch(() => {});
     lifespan.stop();
     diskguard.stop();
+    guard.stop();
     cftunnel.stopAll();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();

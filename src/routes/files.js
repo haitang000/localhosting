@@ -3,6 +3,7 @@ import { requireAuth } from '../auth.js';
 import { config } from '../config.js';
 import * as svc from '../instances.js';
 import * as files from '../files.js';
+import * as guard from '../guard.js';
 
 /**
  * File manager routes, all hanging off /api/instances/:id/files.
@@ -60,7 +61,16 @@ router.put('/:id/files/content', editJson, async (req, res) => {
 });
 
 router.post('/:id/files/upload', uploadJson, async (req, res) => {
-  res.json(await files.upload(instance(req), req.user, req.body?.path, req.body?.files));
+  const row = instance(req);
+  // 危险操作预警：只看文件名（矿机二进制常常原名上传）。只记录不拦截，
+  // 预警系统自己的问题也不该挡住一次正常上传。
+  try {
+    const names = (req.body?.files || []).map((f) => f?.name).filter(Boolean).join('\n');
+    if (names) guard.scanText(row, names, 'upload');
+  } catch {
+    /* 预警失败不影响上传 */
+  }
+  res.json(await files.upload(row, req.user, req.body?.path, req.body?.files));
 });
 
 router.post('/:id/files/mkdir', express.json(), async (req, res) => {

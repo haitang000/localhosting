@@ -164,6 +164,30 @@ CREATE TABLE IF NOT EXISTS bundles (
   updated_at TEXT    NOT NULL
 );
 
+-- 危险操作预警（src/guard.js）：命中挖矿等特征时记一条，管理员在后台处理。
+-- user_id / instance_id 故意不设外键 —— 实例和用户可能先被删掉，预警（连同
+-- 封禁依据）要留下来，所以 username / instance_name 是写入时的快照。
+-- source：process（进程扫描）/ console（控制台输入）/ create（创建参数）/ upload（上传文件名）
+-- status：open（待处理）→ resolved；action 记管理员最终怎么处置的。
+CREATE TABLE IF NOT EXISTS alerts (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER,
+  username       TEXT    NOT NULL,
+  instance_id    TEXT,
+  instance_name  TEXT,
+  source         TEXT    NOT NULL,
+  rule           TEXT    NOT NULL,
+  label          TEXT    NOT NULL,
+  detail         TEXT    NOT NULL DEFAULT '',
+  status         TEXT    NOT NULL DEFAULT 'open',
+  action         TEXT,
+  seen_count     INTEGER NOT NULL DEFAULT 1,
+  first_seen_at  TEXT    NOT NULL,
+  last_seen_at   TEXT    NOT NULL,
+  resolved_by    TEXT,
+  resolved_at    TEXT
+);
+
 -- 面板级设置（key-value）：管理后台可改、不需要重启生效的东西。
 -- 首次启动用环境变量播种，之后以数据库里的值为准。
 CREATE TABLE IF NOT EXISTS settings (
@@ -176,6 +200,8 @@ CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);
 CREATE INDEX IF NOT EXISTS idx_sites_user ON sites(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(status, id DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_instance ON alerts(instance_id, status);
 CREATE INDEX IF NOT EXISTS idx_point_txns_user ON point_txns(user_id, id DESC);
 `);
 
