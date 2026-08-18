@@ -69,6 +69,7 @@ export async function archive(row, reason = '有效期已到') {
   await sleeper.release(row.id).catch(() => {});
   // 自动穿透：停掉隧道进程（隧道和域名保留，续期后 ensureRunning 拉回来）
   if (row.tunnel_json) {
+    console.log(`  🌐 封存实例 ${row.name}：停止 Cloudflare 隧道进程（域名保留）`);
     cftunnel.stop(row);
     emit(row.id, 'Cloudflare 隧道进程已停止（域名保留，续期后自动恢复）', 'log');
   }
@@ -101,8 +102,10 @@ export async function purge(row) {
   // 自动穿透：隧道、DNS 记录、凭据文件一起删，域名腾出来
   if (row.tunnel_json) {
     try {
+      console.log(`  🌐 清理过期实例 ${row.name}：删除 Cloudflare 隧道`);
       await cftunnel.destroy(row);
     } catch (err) {
+      console.error(`  ⚠ 清理过期实例 ${row.name} 的 Cloudflare 隧道失败：${err.message}`);
       emit(row.id, `清理 Cloudflare 隧道失败：${err.message}`, 'error');
     }
   }

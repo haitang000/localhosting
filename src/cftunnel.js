@@ -32,7 +32,8 @@ const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
 /* ---------------------------------------------------------------- HTTP --- */
 
-async function api(method, url, body) {
+async function api(method, url, body, { quiet = false } = {}) {
+  const started = Date.now();
   const res = await fetch(`${CF_BASE}${url}`, {
     method,
     headers: {
@@ -42,6 +43,7 @@ async function api(method, url, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(20_000),
   });
+  const ms = Date.now() - started;
   let data = null;
   try {
     data = await res.json();
@@ -50,8 +52,10 @@ async function api(method, url, body) {
   }
   if (!res.ok || (data && data.success === false)) {
     const detail = (data?.errors || []).map((e) => e.message).join('；') || `HTTP ${res.status}`;
+    console.error(`  ⚠ CF API ${method} ${url} → ${res.status}（${ms}ms）：${detail}`);
     throw new Error(`Cloudflare API ${method} ${url} 失败：${detail}`);
   }
+  if (!quiet) console.log(`  🌐 CF API ${method} ${url} → ${res.status}（${ms}ms）`);
   return data.result;
 }
 
@@ -92,8 +96,10 @@ async function zoneId() {
     const zones = await api('GET', `/zones?name=${encodeURIComponent(name)}&status=active`);
     if (zones.length) {
       zoneIdCache = zones[0].id;
+      console.log(`  🌐 CF Zone 已解析：${config.cfTunnelDomain} → ${name}（${zoneIdCache}）`);
       return zoneIdCache;
     }
+    console.log(`  🌐 CF Zone 逐级查找：${name} 不在本账号，继续向上`);
   }
   throw new Error(
     `无法为 CF_TUNNEL_DOMAIN（${config.cfTunnelDomain}）解析出 Cloudflare Zone：` +
@@ -127,8 +133,9 @@ function killChild(tunnelId) {
     } else {
       process.kill(cur.pid, 'SIGTERM');
     }
-  } catch {
-    /* 进程已经不在了 */
+    console.log(`  🌐 已停止 cloudflared 进程 pid=${cur.pid}（tunnel=${tunnelId}）`);
+  } catch (err) {
+    console.error(`  ⚠ 停止 cloudflared pid=${cur.pid} 失败：${err.message}`);
   }
 }
 
@@ -147,11 +154,19 @@ function spawnRun(tunnelId, cfgFile) {
   };
   child.stdout?.on('data', push);
   child.stderr?.on('data', push);
+  child.on('error', (err) => {
+    console.error(`  ⚠ cloudflared 启动失败 tunnel=${tunnelId}：${err.message}`);
+    push(`启动失败：${err.message}`);
+  });
   child.on('exit', (code, signal) => {
     const cur = children.get(tunnelId);
-    if (cur) push(`进程退出 code=${code} signal=${signal ?? ''}`);
+    if (cur) {
+      push(`进程退出 code=${code} signal=${signal ?? ''}`);
+      console.warn(`  ⚠ cloudflared 意外退出 tunnel=${tunnelId} code=${code} signal=${signal ?? ''}，等看护循环拉起`);
+    }
   });
   children.set(tunnelId, { child, pid: child.pid, ring });
+  console.log(`  🌐 已 spawn cloudflared（${config.cfTunnelBin}）tunnel=${tunnelId} pid=${child.pid}`);
   return child;
 }
 
@@ -185,6 +200,7 @@ async function freeHostname(zone, base) {
   for (const name of candidates) {
     const found = await api('GET', `/zones/${zone}/dns_records?name=${encodeURIComponent(name)}`);
     if (!found.length) return name;
+    console.log(`  🌐 域名 ${name} 已被占用，改试下一个候选`);
   }
   throw new Error(`域名 ${base} 及其 8 个备选都已被占用`);
 }
@@ -196,15 +212,22 @@ async function deleteDnsRecords(hostnames) {
     const found = await api('GET', `/zones/${zone}/dns_records?name=${encodeURIComponent(name)}`);
     for (const rec of found) {
       await api('DELETE', `/zones/${zone}/dns_records/${rec.id}`).catch(() => {});
+      console.log(`  🌐 已删除 DNS 记录 ${name}（${rec.id}）`);
     }
   }
 }
 
 /** 删隧道 + 它的 DNS 记录。best-effort，失败不抛。 */
 async function cleanupRemote(tunnelId, hostnames) {
-  if (hostnames?.length) await deleteDnsRecords(hostnames).catch(() => {});
+  if (hostnames?.length) {
+    await deleteDnsRecords(hostnames).catch((err) =>
+      console.error(`  ⚠ 删除 DNS 记录失败（隧道 ${tunnelId ?? '?'}）：${err.message}`)
+    );
+  }
   if (tunnelId) {
-    await api('DELETE', `/accounts/${config.cfAccountId}/cfd_tunnel/${tunnelId}?force=true`).catch(() => {});
+    await api('DELETE', `/accounts/${config.cfAccountId}/cfd_tunnel/${tunnelId}?force=true`).catch((err) =>
+      console.error(`  ⚠ 删除隧道 ${tunnelId} 失败：${err.message}`)
+    );
   }
 }
 
@@ -229,6 +252,7 @@ export async function createTunnel(row, tcpPorts) {
   const hostnames = [];
   const credFile = path.join(credDir(), `${tunnelId}.json`);
   const configFile = path.join(credDir(), `${tunnelId}.yaml`);
+  console.log(`  🌐 已创建命名隧道 ${tunnelName}（${tunnelId}），开始绑定域名`);
 
   try {
     const accountTag = created.credentials_file?.AccountTag || config.cfAccountId;
@@ -249,6 +273,7 @@ export async function createTunnel(row, tcpPorts) {
         ttl: 1,
       });
       hostnames.push(host);
+      console.log(`  🌐 已分配域名 https://${host}（→ 127.0.0.1:${tcpPorts[i].host}）`);
     }
 
     fs.writeFileSync(configFile, buildConfig(tunnelId, credFile, tcpPorts, hostnames));
@@ -256,10 +281,14 @@ export async function createTunnel(row, tcpPorts) {
 
     const tunnel = { tunnelName, tunnelId, credFile, configFile, hostnames, pid: spawnPid(tunnelId), createdAt: now() };
     db.prepare('UPDATE instances SET tunnel_json = ? WHERE id = ?').run(JSON.stringify(tunnel), row.id);
+    console.log(`  🌐 隧道 ${tunnelName} 已启动（pid ${tunnel.pid}），域名：${hostnames.join('、')}`);
 
     // 不阻塞放行：注册连接通常 1-3 秒内建立，连不上就留个警告日志
     waitForConnection(tunnelId).then((ok) => {
-      if (!ok) {
+      if (ok) {
+        console.log(`  🌐 隧道 ${tunnelName} 已注册到 Cloudflare，${hostnames.length} 个域名生效`);
+      } else {
+        console.error(`  ⚠ 隧道 ${tunnelName} 启动后 20 秒未注册到 Cloudflare（进程还在重试）`);
         emit(
           row.id,
           `Cloudflare 隧道进程已启动但 20 秒内未注册到 Cloudflare（进程还在重试）。检查 data/cloudflared/${tunnelId}.yaml 与网络。`,
@@ -274,6 +303,7 @@ export async function createTunnel(row, tcpPorts) {
     for (const f of [credFile, configFile]) {
       try { fs.unlinkSync(f); } catch { /* 已删 */ }
     }
+    console.error(`  ⚠ 创建隧道 ${tunnelName} 失败，已回滚（删 DNS / 隧道 / 凭据）：${err.message}`);
     throw err;
   }
 }
@@ -292,12 +322,14 @@ export function ensureRunning(row) {
     return;
   }
   spawnRun(t.tunnelId, cfgFile);
+  console.log(`  🌐 已拉起隧道进程 ${t.tunnelName}（${t.tunnelId}）`);
 }
 
 /** 停掉隧道进程，保留隧道和域名（封存时用，续期后 ensureRunning 拉回来）。 */
 export function stop(row) {
   const t = parse(row.tunnel_json);
   if (!t) return;
+  console.log(`  🌐 停止隧道进程 ${t.tunnelName}（域名保留）`);
   killChild(t.tunnelId);
 }
 
@@ -305,6 +337,7 @@ export function stop(row) {
 export async function destroy(row) {
   const t = parse(row.tunnel_json);
   if (!t) return;
+  console.log(`  🌐 清理隧道 ${t.tunnelName}（${t.tunnelId}）…`);
   killChild(t.tunnelId);
   await cleanupRemote(t.tunnelId, t.hostnames).catch((err) =>
     console.error(`  ⚠ 删除隧道 ${t.tunnelName} 失败：${err.message}`)
@@ -313,6 +346,7 @@ export async function destroy(row) {
     try { fs.unlinkSync(f); } catch { /* 已删 */ }
   }
   db.prepare('UPDATE instances SET tunnel_json = NULL WHERE id = ?').run(row.id);
+  console.log(`  🌐 隧道 ${t.tunnelName} 已彻底删除，域名 ${t.hostnames.join('、')} 已释放`);
 }
 
 /** 给 serialize 用：进程状态 + 最近几行输出，不含任何凭据。 */
@@ -329,16 +363,25 @@ export function info(row) {
 
 /** 隧道进程注册到 Cloudflare 之前，轮询 connections 接口确认健康。 */
 async function waitForConnection(tunnelId, timeoutMs = 20_000) {
+  console.log(`  🌐 等待隧道 ${tunnelId} 注册到 Cloudflare…（最长 ${timeoutMs / 1000} 秒）`);
   const deadline = Date.now() + timeoutMs;
+  let attempts = 0;
   while (Date.now() < deadline) {
+    attempts++;
     try {
-      const conns = await api('GET', `/accounts/${config.cfAccountId}/cfd_tunnel/${tunnelId}/connections`);
-      if (conns.length) return true;
-    } catch {
-      /* 接口抖一下，重试 */
+      const conns = await api('GET', `/accounts/${config.cfAccountId}/cfd_tunnel/${tunnelId}/connections`, undefined, {
+        quiet: true,
+      });
+      if (conns.length) {
+        console.log(`  🌐 隧道 ${tunnelId} 已建立 ${conns.length} 条连接（第 ${attempts} 次轮询）`);
+        return true;
+      }
+    } catch (err) {
+      console.warn(`  ⚠ 轮询隧道 ${tunnelId} 连接状态失败（第 ${attempts} 次）：${err.message}，稍后重试`);
     }
     await new Promise((r) => setTimeout(r, 1500));
   }
+  console.error(`  ⚠ 隧道 ${tunnelId} ${timeoutMs / 1000} 秒内未注册到 Cloudflare（轮询 ${attempts} 次）`);
   return false;
 }
 
@@ -347,11 +390,17 @@ let watchdog = null;
 /** 启动时恢复所有实例的隧道进程，并挂一个 60 秒看护循环。 */
 export function start() {
   const rows = db.prepare('SELECT * FROM instances WHERE tunnel_json IS NOT NULL').all();
+  if (!rows.length) {
+    console.log('  🌐 没有需要恢复的 Cloudflare 隧道（instances.tunnel_json 为空）');
+  }
   let up = 0;
+  let skipped = 0;
   for (const row of rows) {
     if (['archived', 'pending', 'rejected'].includes(row.status)) {
       // 封存 / 待审批 / 已驳回的实例不该有活着的隧道进程
+      console.log(`  🌐 跳过隧道恢复：实例 ${row.name} 状态为 ${row.status}`);
       stop(row);
+      skipped++;
       continue;
     }
     try {
@@ -361,7 +410,7 @@ export function start() {
       console.error(`  ⚠ 恢复隧道 ${row.name} 失败：${err.message}`);
     }
   }
-  if (up) console.log(`  🌐 已恢复 ${up} 个 Cloudflare 隧道进程`);
+  if (up) console.log(`  🌐 已恢复 ${up} 个 Cloudflare 隧道进程${skipped ? `（跳过 ${skipped} 个非运行实例）` : ''}`);
   if (watchdog) clearInterval(watchdog);
   watchdog = setInterval(() => {
     const active = db
@@ -379,7 +428,9 @@ export function start() {
 export function stopAll() {
   if (watchdog) clearInterval(watchdog);
   watchdog = null;
+  const n = children.size;
   for (const tunnelId of children.keys()) killChild(tunnelId);
+  if (n) console.log(`  🌐 已停止全部 ${n} 个隧道进程`);
 }
 
 /** createTunnel 里 spawn 之后的 pid 记录（spawnRun 内部存了）。 */

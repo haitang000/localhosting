@@ -404,14 +404,19 @@ export async function approveInstance(row, admin, { addresses = {}, note, autoTu
     // 但隧道还残留 —— 先清掉再建，免得域名和 DNS 记录越积越多
     if (row.tunnel_json) await cftunnel.destroy(row).catch(() => {});
     const problem = cftunnel.configProblem();
-    if (problem) throw bad(`自动穿透暂不可用：${problem}`);
+    if (problem) {
+      console.warn(`  ⚠ 实例 ${row.name} 请求自动穿透但配置不可用：${problem}`);
+      throw bad(`自动穿透暂不可用：${problem}`);
+    }
     const tcp = ports.filter((p) => p.protocol === 'tcp');
     const udp = ports.filter((p) => p.protocol === 'udp');
     if (!tcp.length) throw bad('这个实例没有可自动穿透的 TCP 端口');
     emit(row.id, '正在创建 Cloudflare 隧道并分配域名…', 'log');
+    console.log(`  🌐 开始为实例 ${row.name} 自动创建 Cloudflare 隧道（${tcp.length} 个 TCP 端口）`);
     try {
       tunnel = await cftunnel.createTunnel(row, tcp);
     } catch (err) {
+      console.error(`  ⚠ 实例 ${row.name} 自动创建 Cloudflare 隧道失败：${err.message}`);
       emit(row.id, `创建隧道失败：${err.message}`, 'error');
       throw new HttpError(502, `自动创建 Cloudflare Tunnel 失败：${err.message}`);
     }
@@ -759,8 +764,10 @@ export async function destroy(row, user, { keepVolume = false } = {}) {
   // 自动穿透的实例：隧道 + DNS 记录 + 凭据一起清掉，域名腾出来
   if (row.tunnel_json) {
     try {
+      console.log(`  🌐 删除实例 ${row.name}：清理 Cloudflare 隧道`);
       await cftunnel.destroy(row);
     } catch (err) {
+      console.error(`  ⚠ 删除实例 ${row.name} 时清理 Cloudflare 隧道失败：${err.message}`);
       emit(row.id, `清理 Cloudflare 隧道失败：${err.message}`, 'error');
     }
   }
@@ -857,8 +864,10 @@ export async function renewInstance(row, user, days) {
   if (wasArchived && fresh.tunnel_json) {
     try {
       cftunnel.ensureRunning(fresh);
+      console.log(`  🌐 实例 ${row.name} 续期激活，Cloudflare 隧道已重新拉起`);
       emit(row.id, 'Cloudflare 隧道已重新拉起，域名恢复访问', 'log');
     } catch (err) {
+      console.error(`  ⚠ 实例 ${row.name} 续期后重启 Cloudflare 隧道失败：${err.message}`);
       emit(row.id, `重启 Cloudflare 隧道失败：${err.message}`, 'error');
     }
   }
