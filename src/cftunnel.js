@@ -161,7 +161,8 @@ function spawnRun(tunnelId, cfgFile) {
   // service accounts whose profile is read-only or unavailable.
   const writableHome = credDir();
   fs.mkdirSync(writableHome, { recursive: true });
-  const child = spawn(config.cfTunnelBin, ['tunnel', '--config', cfgFile, 'run', tunnelId], {
+  const bin = resolveCloudflaredBin();
+  const child = spawn(bin, ['tunnel', '--config', cfgFile, 'run', tunnelId], {
     windowsHide: true,
     env: {
       ...process.env,
@@ -193,8 +194,17 @@ function spawnRun(tunnelId, cfgFile) {
     }
   });
   children.set(tunnelId, { child, pid: child.pid, ring });
-  console.log(`  🌐 已 spawn cloudflared（${config.cfTunnelBin}）tunnel=${tunnelId} pid=${child.pid}`);
+  console.log(`  🌐 已 spawn cloudflared（${bin}）tunnel=${tunnelId} pid=${child.pid}`);
   return child;
+}
+
+function resolveCloudflaredBin() {
+  if (config.cfTunnelBin !== 'cloudflared' || process.platform !== 'win32') return config.cfTunnelBin;
+  const candidates = [
+    path.join(process.env.ProgramFiles || '', 'cloudflared', 'cloudflared.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || '', 'cloudflared', 'cloudflared.exe'),
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || config.cfTunnelBin;
 }
 
 const parse = (json) => {
