@@ -532,6 +532,16 @@ function setStatus(id, status, error = null) {
 }
 
 async function provision(spec) {
+  try {
+    await provisionInner(spec);
+  } catch (err) {
+    // 上游（镜像仓库等）可能回一整张 HTML 错误页，dockerode 会把它原样塞进
+    // err.message —— 统一转成一句话再进界面（原始内容已由 docker.js 打到控制台）。
+    throw dk.friendlyError(err, '创建实例失败');
+  }
+}
+
+async function provisionInner(spec) {
   const containerName = `${config.containerPrefix}-${spec.user.username}-${spec.name}`.toLowerCase();
 
   emit(spec.id, `准备镜像 ${spec.image} ...`);

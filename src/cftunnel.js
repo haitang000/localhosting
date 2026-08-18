@@ -244,7 +244,9 @@ async function cleanupRemote(tunnelId, hostnames) {
 export async function createTunnel(row, tcpPorts) {
   fs.mkdirSync(credDir(), { recursive: true });
   const tunnelName = `${config.cfTunnelPrefix}-${row.id.slice(0, 8)}`;
-  const secret = crypto.randomBytes(32).toString('base64url');
+  // 必须是标准 base64：CF 侧按标准字母表解码，base64url 里的 - / _ 会直接
+  // 400（Invalid symbol 45 / 95, offset N）。凭据文件里的 TunnelSecret 同源。
+  const secret = crypto.randomBytes(32).toString('base64');
 
   const created = await api('POST', `/accounts/${config.cfAccountId}/cfd_tunnel`, {
     name: tunnelName,

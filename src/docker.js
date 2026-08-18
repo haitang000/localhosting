@@ -16,6 +16,22 @@ function buildDocker() {
 
 export const docker = buildDocker();
 
+/**
+ * 上游（Docker daemon / 镜像仓库）偶尔会返回一整张 HTML 错误页而不是 JSON
+ * 错误（拉取不存在的镜像、被镜像源网关拦截、网络被墙时常见），dockerode 会把
+ * 响应体原样塞进 err.message —— 直接丢给界面就是一墙标签。识别这种响应，
+ * 换成一句能看懂的话；原始内容打到控制台供排查，绝不往用户界面漏。
+ */
+export function friendlyError(err, fallback = '操作失败') {
+  const msg = err?.message || String(err || '');
+  if (!msg.trim()) return fallback;
+  if (/^\s*<!DOCTYPE|<html[\s>]/i.test(msg.trim())) {
+    console.error(`  ⚠ Docker 上游返回了 HTML 错误页（已转友好提示），原始内容：\n${msg.slice(0, 2000)}`);
+    return `${fallback}：上游返回了非 JSON 的错误页面（常见于网络被拦或镜像源异常），请稍后重试或换个镜像源`;
+  }
+  return msg;
+}
+
 export const LABEL_MANAGED = 'lh.managed';
 export const LABEL_INSTANCE = 'lh.instance';
 export const LABEL_USER = 'lh.user';
@@ -29,11 +45,11 @@ export async function ping() {
 export function pullImage(image, onLog = () => {}) {
   return new Promise((resolve, reject) => {
     docker.pull(image, (err, stream) => {
-      if (err) return reject(err);
+      if (err) return reject(friendlyError(err, '镜像拉取失败'));
       let lastStatus = '';
       docker.modem.followProgress(
         stream,
-        (doneErr) => (doneErr ? reject(doneErr) : resolve()),
+        (doneErr) => (doneErr ? reject(friendlyError(doneErr, '镜像拉取失败')) : resolve()),
         (event) => {
           const line = event.status ? `${event.status}${event.id ? ` ${event.id}` : ''}` : '';
           if (line && line !== lastStatus) {
