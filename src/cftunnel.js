@@ -9,10 +9,12 @@ import { emit } from './events.js';
 /**
  * Cloudflare Tunnel 自动穿透。
  *
- * 管理员在审批 / 新建实例时勾选「自动穿透」后，面板自己走 Cloudflare API：
+ * 实例放行 / 管理员新建时默认开启（CF 隧道配置可用且有 TCP 端口即可，管理员
+ * 可在界面上取消勾选改手动），面板自己走 Cloudflare API：
  *   1. 建一个命名隧道（POST /accounts/<id>/cfd_tunnel），密钥是本模块自己
  *      生成的（tunnel_secret），凭据写进 data/cloudflared/<tunnelId>.json
- *   2. 给实例的每个 TCP 端口在 CF_TUNNEL_DOMAIN 下分配一个子域名
+ *   2. 给实例的每个 TCP 端口在 CF_TUNNEL_DOMAIN 下分配一个子域名：第 1 个
+ *      端口拿到干净的 <实例名>.<域名>，第 2 个起加 -p2 / -p3
  *      （CNAME → <tunnelId>.cfargotunnel.com，proxied 必须为 true）。DNS 记录
  *      写进哪个 Zone 由 zoneId() 自动解析：CF_TUNNEL_DOMAIN 填二级域名
  *      （example.com）或三级/更深的子域（apps.example.com）都行
@@ -188,10 +190,11 @@ function buildConfig(tunnelId, credFile, tcpPorts, hostnames) {
   return `tunnel: ${q(tunnelId)}\ncredentials-file: ${q(credFile)}\ningress:\n${ingress}\n  - service: http_status:404\n`;
 }
 
-/** 给实例的第 idx 个 TCP 端口生成候选域名（hostname 按 DNS 规则必须唯一）。 */
-function hostnameFor(instanceName, instanceId, idx) {
-  const label = `${instanceName}-${instanceId.slice(0, 6)}${idx > 0 ? `-p${idx + 1}` : ''}`;
-  return `${label}.${config.cfTunnelDomain}`;
+/** 给实例的第 idx 个 TCP 端口生成候选域名：第 1 个端口拿到 <实例名>.<域名>，
+ * 后续端口加 -p2 / -p3。实例名只在单个用户内唯一，跨用户撞名时
+ * freeHostname 会自动改试 -2 ~ -9 后缀。 */
+function hostnameFor(instanceName, idx) {
+  return `${instanceName}${idx > 0 ? `-p${idx + 1}` : ''}.${config.cfTunnelDomain}`;
 }
 
 /** 挑一个没被占用的域名：先试本名，被占就依次试 -2 ~ -9。 */
@@ -263,7 +266,7 @@ export async function createTunnel(row, tcpPorts) {
 
     const zone = await zoneId();
     for (let i = 0; i < tcpPorts.length; i++) {
-      const base = hostnameFor(row.name, row.id, i);
+      const base = hostnameFor(row.name, i);
       const host = await freeHostname(zone, base);
       await api('POST', `/zones/${zone}/dns_records`, {
         type: 'CNAME',

@@ -2235,7 +2235,7 @@ function viewNew() {
     cmdText: '',
     sleepEnabled: null, // null = follow the panel default
     idleMinutes: null,
-    autoTunnel: false, // 管理员专用：放行时自动建 Cloudflare 隧道
+    autoTunnel: null, // 三态：null 没选（跟着面板默认自动穿透）/ true / false
     note: '',
   };
   let step = 0;
@@ -2956,11 +2956,27 @@ function viewNew() {
         draft.sleepEnabled ? `空闲 ${draft.idleMinutes ?? state.cfg.sleep.idleMinutes} 分钟后休眠` : '不休眠',
       ]);
     }
+    // CF 隧道开着时，域名放行后自动就有 —— 提前把要分到的地址亮出来。
+    // 自定义镜像的端口文本按提交时的同一套解析判断有没有 TCP 端口。
+    const hasTcp = t
+      ? t.ports.some((p) => p.protocol === 'tcp')
+      : draft.portsText
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .some((s) => !s.endsWith('/udp'));
+    if (state.cfg?.cfTunnel && hasTcp && state.user.role !== 'admin') {
+      rows.push([
+        `${icon('cloud')}预计域名`,
+        `<span class="mono">https://${esc(draft.name.toLowerCase())}.${esc(state.cfg.cfTunnel.domain)}</span>` +
+          `<span class="sub">（管理员放行后自动解析到对外端口）</span>`,
+      ]);
+    }
     if (state.cfg?.cfTunnel && state.user.role === 'admin') {
       rows.push([
         `${icon('cloud')}自动穿透`,
         draft.autoTunnel
-          ? `自动建 Cloudflare 隧道，域名 https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}`
+          ? `自动建 Cloudflare 隧道，域名 <span class="mono">https://${esc(draft.name.toLowerCase())}.${esc(state.cfg.cfTunnel.domain)}</span>`
           : '不自动（需手动配穿透）',
       ]);
     }
@@ -2999,7 +3015,8 @@ function viewNew() {
           body.sleep = { enabled: draft.sleepEnabled, idleMinutes: draft.idleMinutes || undefined };
         }
         if (state.cfg?.cfTunnel && state.user.role === 'admin') {
-          body.autoTunnel = draft.autoTunnel ? true : undefined;
+          // 三态：勾了 true、取消勾 false、界面上没这个选项就 undefined（默认自动）
+          body.autoTunnel = draft.autoTunnel ?? undefined;
         }
         if (t) {
           for (const f of t.env) if (draft.env[f.key] !== undefined) body.env[f.key] = draft.env[f.key];
@@ -3086,7 +3103,9 @@ function cfTunnelFieldHtml(t) {
   const blocked = none || udpOnly;
   return `<div class="field">
       <label class="row" style="gap:8px">
-        <span class="switch"><input type="checkbox" name="autoTunnel" ${blocked ? 'disabled' : ''} /><span class="knob"></span></span>
+        <span class="switch"><input type="checkbox" name="autoTunnel" ${
+          blocked ? 'disabled' : 'checked'
+        } /><span class="knob"></span></span>
         <span>${icon('cloud')}自动穿透 —— 自动建 Cloudflare 隧道，免手动配置</span>
       </label>
       <div class="hint">${
@@ -3094,7 +3113,7 @@ function cfTunnelFieldHtml(t) {
           ? udpOnly
             ? '这个模板全是 UDP 端口，Cloudflare 隧道无法承载 UDP，不能自动穿透。'
             : '这个模板不暴露端口，不需要穿透。'
-          : `放行后自动分配 <code>https://&lt;实例名&gt;.${esc(cf.domain)}</code> 域名并填好对外地址，无需手动配穿透。仅 TCP 端口有效；UDP 端口仍要手动转发。`
+          : `创建后自动把 <code>https://&lt;实例名&gt;.${esc(cf.domain)}</code> 解析到对外端口并填好地址，默认开启；要手动配穿透就取消勾选。仅 TCP 端口有效；UDP 端口仍要手动转发。`
       }</div>
     </div>`;
 }
@@ -6176,10 +6195,11 @@ function pendingCard(i) {
       state.cfg?.cfTunnel
         ? `<label class="row" style="gap:8px;margin-top:12px;align-items:flex-start">
              <span class="switch" style="margin-top:3px"><input type="checkbox" id="autotunnel-${esc(i.id)}" ${
-             i.ports.every((p) => p.protocol === 'udp') ? 'disabled' : ''
+             i.ports.every((p) => p.protocol === 'udp') ? 'disabled' : 'checked'
            } /><span class="knob"></span></span>
-             <span>${icon('cloud')}自动创建 Cloudflare Tunnel —— 不手动配穿透，自动分配
-               <code>https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}</code> 并填好地址
+             <span>${icon('cloud')}自动创建 Cloudflare Tunnel —— 放行后自动把
+               <code>https://&lt;实例名&gt;.${esc(state.cfg.cfTunnel.domain)}</code> 解析到对外端口并填好地址
+               （默认开启；下面的对外地址填了任何一个 TCP 端口就视为手动配穿透，自动取消勾选）
                ${i.ports.some((p) => p.protocol === 'udp') ? '（UDP 端口无法走隧道）' : ''}</span>
            </label>`
         : ''
@@ -6211,13 +6231,15 @@ async function viewAdmin() {
         ? `<div class="hint" style="margin-bottom:14px">
              ${icon('info')}穿透客户端应指向 <code>${esc(hint.bindAddress)}:&lt;主机端口&gt;</code>，
              端口池 <code>${esc(hint.portPool)}</code>。
-             把下面列出的主机端口转发出去之后，填上用户实际要访问的地址再放行；留空则显示
-             <code>${esc(hint.publicHost || 'localhost')}:主机端口</code>。
              ${
                hint.cfTunnel
-                 ? `也可以勾选每张卡片上的「自动创建 Cloudflare Tunnel」：面板自动建隧道、分配
-                   <code>https://&lt;实例名&gt;.${esc(hint.cfTunnel.domain)}</code> 域名并填好地址，什么都不用配。`
-                 : ''
+                 ? `放行时默认自动创建 Cloudflare Tunnel：面板自动建隧道、把
+                   <code>https://&lt;实例名&gt;.${esc(hint.cfTunnel.domain)}</code> 解析到对外端口并填好地址，
+                   什么都不用配；要手动转发的实例，取消卡片上的勾选（或直接在地址栏里填），
+                   把列出的主机端口转发出去后填上用户实际要访问的地址再放行，留空则显示
+                   <code>${esc(hint.publicHost || 'localhost')}:主机端口</code>。`
+                 : `把下面列出的主机端口转发出去之后，填上用户实际要访问的地址再放行；留空则显示
+                   <code>${esc(hint.publicHost || 'localhost')}:主机端口</code>。`
              }
            </div>` +
           pending.map(pendingCard).join('')
@@ -6801,6 +6823,18 @@ async function viewAdmin() {
 }
 
 function wireAdmin(refresh) {
+  // 管理员在任何「对外地址」栏里手动填了值 = 要自己配穿透：自动穿透勾选随之
+  // 下掉，免得放行时自动域名把刚填的地址盖掉。两个都想要就再勾回去。
+  app.querySelectorAll('[data-pcard]').forEach((card) => {
+    card.querySelectorAll('[data-port]').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        if (!inp.value.trim()) return;
+        const cb = card.querySelector(`#autotunnel-${card.dataset.pcard}`);
+        if (cb && !cb.disabled) cb.checked = false;
+      });
+    });
+  });
+
   app.querySelectorAll('[data-approve]').forEach(
     (b) =>
       (b.onclick = async () => {

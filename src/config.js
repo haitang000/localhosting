@@ -125,10 +125,10 @@ export const config = {
   panelPublicUrl: (process.env.PANEL_PUBLIC_URL || '').replace(/\/+$/, ''),
 
   // --- Cloudflare Tunnel 自动穿透 ---
-  // 管理员在审批 / 新建实例时勾选「自动穿透」后，面板自己走 Cloudflare API
-  // 建命名隧道、绑 CF_TUNNEL_DOMAIN 下的子域名、拉起 cloudflared 进程，
-  // 并把对外地址自动填进实例。需要 CF 侧一个 Zone:DNS:Edit + Zone:Zone:Read +
-  // Cloudflare Tunnel:Edit 的 API Token。
+  // 实例放行 / 管理员新建时默认开启（界面上可取消改手动）：面板自己走
+  // Cloudflare API 建命名隧道、绑 CF_TUNNEL_DOMAIN 下的 <实例名>.<域名>、
+  // 拉起 cloudflared 进程，并把对外地址自动填进实例。需要 CF 侧一个
+  // Zone:DNS:Edit + Zone:Zone:Read + Cloudflare Tunnel:Edit 的 API Token。
   cfTunnelEnabled: bool(process.env.CF_TUNNEL_ENABLED, false),
   cfApiToken: process.env.CF_API_TOKEN || '',
   cfAccountId: process.env.CF_ACCOUNT_ID || '',
@@ -136,7 +136,7 @@ export const config = {
   //（三级 apps.example.com → 二级 example.com），需要 Token 带 Zone:Read。
   cfZoneId: process.env.CF_ZONE_ID || '',
   // 子域名都挂在它下面，二级（example.com）或三级（apps.example.com）都行，
-  // 例 apps.example.com → myapp-abc123.apps.example.com
+  // 例 apps.example.com → myapp.apps.example.com
   cfTunnelDomain: (process.env.CF_TUNNEL_DOMAIN || '').trim(),
   // 隧道名前缀；凭据和 ingress 配置存在 CF_TUNNEL_CRED_DIR
   cfTunnelPrefix: process.env.CF_TUNNEL_PREFIX || 'lh',

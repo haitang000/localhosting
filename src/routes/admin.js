@@ -369,10 +369,12 @@ router.get('/pending', async (req, res) => {
 
 router.post('/instances/:id/approve', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
+  // 三态透传：没传 autoTunnel（undefined）时 approveInstance 默认自动穿透
+  const at = req.body?.autoTunnel;
   await svc.approveInstance(row, req.user, {
     addresses: req.body?.addresses || {},
     note: req.body?.note,
-    autoTunnel: req.body?.autoTunnel === true,
+    autoTunnel: at === true || at === false ? at : undefined,
   });
   res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
 });

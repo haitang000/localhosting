@@ -314,11 +314,13 @@ export async function createInstance(user, body) {
   // 管理员自己开的实例不排队：审批队列的意义是「先把穿透配好，再建容器」，
   // 而配穿透的就是他本人 —— 让他给自己点一次放行没有增加任何把关。
   // 对外地址先空着（显示成 PUBLIC_HOST:主机端口），穿透配好后在实例页改；
-  // 勾了「自动穿透」的话 approveInstance 里会建隧道并自动填好地址。
+  // 没勾也没取消「自动穿透」的话 approveInstance 会默认建隧道
+  // （<实例名>.域名 → 对外端口）并自动填好地址。
   if (user.role === 'admin') {
     emit(id, '管理员本人提交，跳过审批直接创建', 'log');
     await approveInstance(db.prepare('SELECT * FROM instances WHERE id = ?').get(id), user, {
-      autoTunnel: Boolean(body.autoTunnel),
+      // 三态透传：true 明确要 / false 明确不要 / undefined 没说（走默认）
+      autoTunnel: body.autoTunnel === true ? true : body.autoTunnel === false ? false : undefined,
     });
     return { id, generated, status: 'creating' };
   }
@@ -391,10 +393,19 @@ export function setExpiry(row, admin, expiresAt) {
 }
 
 /** Admin approved: record the public addresses they set up, then build it. */
-export async function approveInstance(row, admin, { addresses = {}, note, autoTunnel = false } = {}) {
+export async function approveInstance(row, admin, { addresses = {}, note, autoTunnel } = {}) {
   if (row.status !== 'pending') throw bad('这个实例不在待审批状态');
 
   let ports = withAddresses(row, addresses);
+
+  // 自动穿透默认开启：调用方没明确取消（autoTunnel === undefined）而 CF 隧道
+  // 可用、实例有 TCP 端口、管理员也没手填 TCP 端口的对外地址时，放行即自动
+  // 把 <实例名>.<CF_TUNNEL_DOMAIN> 解析到对外端口。明确 true / false 的按
+  // 传进来的走（true 遇配置问题照旧报错，实例留在待审批队列）。
+  if (autoTunnel === undefined) {
+    const tcpManual = ports.some((p) => p.protocol === 'tcp' && p.public);
+    autoTunnel = cftunnel.enabled() && ports.some((p) => p.protocol === 'tcp') && !tcpManual;
+  }
 
   // 自动穿透：面板自己建 Cloudflare 隧道、绑域名、拉起进程，地址自动填好，
   // 管理员不用再手动配。失败会回滚已创建的隧道再抛错，实例留在待审批队列。
