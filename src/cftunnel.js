@@ -54,11 +54,25 @@ async function api(method, url, body, { quiet = false } = {}) {
   }
   if (!res.ok || (data && data.success === false)) {
     const detail = (data?.errors || []).map((e) => e.message).join('；') || `HTTP ${res.status}`;
-    console.error(`  ⚠ CF API ${method} ${url} → ${res.status}（${ms}ms）：${detail}`);
-    throw new Error(`Cloudflare API ${method} ${url} 失败：${detail}`);
+    const hint = res.status === 403 ? `（${permissionHint(url)}）` : '';
+    console.error(`  ⚠ CF API ${method} ${url} → ${res.status}（${ms}ms）：${detail}${hint}`);
+    throw new Error(`Cloudflare API ${method} ${url} 失败：${detail}${hint}`);
   }
   if (!quiet) console.log(`  🌐 CF API ${method} ${url} → ${res.status}（${ms}ms）`);
   return data.result;
+}
+
+/** Token 权限不够时 CF 只回一句 Authentication error —— 按端点提示缺哪个权限，
+ * 免得对着文档猜。权限名对应建 Token 时的「权限」三栏。 */
+function permissionHint(url) {
+  if (url.startsWith('/zones/') && url.includes('/dns_records')) {
+    return 'API Token 缺 Zone:DNS:Edit 权限，或 Zone 不在 Token 的授权范围里';
+  }
+  if (url.startsWith('/accounts/') && url.includes('/cfd_tunnel')) {
+    return 'API Token 缺 Account 级 Cloudflare Tunnel:Edit 权限，或 Account 不在授权范围里';
+  }
+  if (url.startsWith('/zones')) return 'API Token 缺 Zone:Zone:Read 权限';
+  return 'API Token 权限不足或资源范围不对（需要 Zone:DNS:Edit + Zone:Zone:Read + Cloudflare Tunnel:Edit）';
 }
 
 /** 配置齐不齐。返回错误描述，null = 可用。CF_ZONE_ID 可选 —— 没填时
