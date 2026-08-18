@@ -13,7 +13,9 @@ import { emit } from './events.js';
  *   1. 建一个命名隧道（POST /accounts/<id>/cfd_tunnel），密钥是本模块自己
  *      生成的（tunnel_secret），凭据写进 data/cloudflared/<tunnelId>.json
  *   2. 给实例的每个 TCP 端口在 CF_TUNNEL_DOMAIN 下分配一个子域名
- *      （CNAME → <tunnelId>.cfargotunnel.com，proxied 必须为 true）
+ *      （CNAME → <tunnelId>.cfargotunnel.com，proxied 必须为 true）。DNS 记录
+ *      写进哪个 Zone 由 zoneId() 自动解析：CF_TUNNEL_DOMAIN 填二级域名
+ *      （example.com）或三级/更深的子域（apps.example.com）都行
  *   3. 写一份 ingress 配置文件，spawn 一个 `cloudflared tunnel run` 进程
  * 对外地址（hostname）自动填进实例的 ports_json —— 管理员不用再手动配穿透。
  *
@@ -53,13 +55,13 @@ async function api(method, url, body) {
   return data.result;
 }
 
-/** 配置齐不齐。返回错误描述，null = 可用。 */
+/** 配置齐不齐。返回错误描述，null = 可用。CF_ZONE_ID 可选 —— 没填时
+ *  建/删 DNS 记录前会用 CF_TUNNEL_DOMAIN 逐级向上解析（见 zoneId）。 */
 export function configProblem() {
   if (!config.cfTunnelEnabled) return 'CF_TUNNEL_ENABLED 未开启';
   const need = [
     ['CF_API_TOKEN', config.cfApiToken],
     ['CF_ACCOUNT_ID', config.cfAccountId],
-    ['CF_ZONE_ID', config.cfZoneId],
     ['CF_TUNNEL_DOMAIN', config.cfTunnelDomain],
   ];
   const missing = need.filter(([, v]) => !v).map(([k]) => k);
@@ -67,6 +69,38 @@ export function configProblem() {
 }
 
 export const enabled = () => !configProblem();
+
+/* ---------------------------------------------------------------- Zone --- */
+
+let zoneIdCache = null;
+
+/**
+ * DNS 记录要写进去的 Zone ID。
+ *
+ * CF_ZONE_ID 填了直接用（快路径）；没填就拿着 CF_TUNNEL_DOMAIN 逐级向上
+ * 查 /zones?name= —— 先试整个域名（它本身就是个 Zone 的情况），再逐个
+ * 去掉最左边的标签试父域（apps.example.com → example.com），顶级域（cn /
+ * com）不试。所以 CF_TUNNEL_DOMAIN 填二级还是三级/更深都能解析到，前提
+ * 是 API Token 带 Zone:Zone:Read。结果缓存，一个面板进程最多查一次。
+ */
+async function zoneId() {
+  if (config.cfZoneId) return config.cfZoneId;
+  if (zoneIdCache) return zoneIdCache;
+  const labels = config.cfTunnelDomain.split('.').filter(Boolean);
+  for (let i = 0; i < labels.length - 1; i++) {
+    const name = labels.slice(i).join('.');
+    const zones = await api('GET', `/zones?name=${encodeURIComponent(name)}&status=active`);
+    if (zones.length) {
+      zoneIdCache = zones[0].id;
+      return zoneIdCache;
+    }
+  }
+  throw new Error(
+    `无法为 CF_TUNNEL_DOMAIN（${config.cfTunnelDomain}）解析出 Cloudflare Zone：` +
+      '请确认域名已托管在 Cloudflare、API Token 带 Zone:Zone:Read 权限，' +
+      '或在 .env 里直接填 CF_ZONE_ID'
+  );
+}
 
 /* ------------------------------------------------------------ 进程管理 --- */
 
@@ -146,10 +180,10 @@ function hostnameFor(instanceName, instanceId, idx) {
 }
 
 /** 挑一个没被占用的域名：先试本名，被占就依次试 -2 ~ -9。 */
-async function freeHostname(base) {
+async function freeHostname(zone, base) {
   const candidates = [base, ...Array.from({ length: 8 }, (_, i) => `${base}-${i + 2}`)];
   for (const name of candidates) {
-    const found = await api('GET', `/zones/${config.cfZoneId}/dns_records?name=${encodeURIComponent(name)}`);
+    const found = await api('GET', `/zones/${zone}/dns_records?name=${encodeURIComponent(name)}`);
     if (!found.length) return name;
   }
   throw new Error(`域名 ${base} 及其 8 个备选都已被占用`);
@@ -157,10 +191,11 @@ async function freeHostname(base) {
 
 /** 删掉一个隧道的全部 DNS 记录（按名字找，防手滑删掉别人的）。 */
 async function deleteDnsRecords(hostnames) {
+  const zone = await zoneId();
   for (const name of hostnames) {
-    const found = await api('GET', `/zones/${config.cfZoneId}/dns_records?name=${encodeURIComponent(name)}`);
+    const found = await api('GET', `/zones/${zone}/dns_records?name=${encodeURIComponent(name)}`);
     for (const rec of found) {
-      await api('DELETE', `/zones/${config.cfZoneId}/dns_records/${rec.id}`).catch(() => {});
+      await api('DELETE', `/zones/${zone}/dns_records/${rec.id}`).catch(() => {});
     }
   }
 }
@@ -202,10 +237,11 @@ export async function createTunnel(row, tcpPorts) {
       JSON.stringify({ AccountTag: accountTag, TunnelSecret: secret, TunnelID: tunnelId }, null, 2)
     );
 
+    const zone = await zoneId();
     for (let i = 0; i < tcpPorts.length; i++) {
       const base = hostnameFor(row.name, row.id, i);
-      const host = await freeHostname(base);
-      await api('POST', `/zones/${config.cfZoneId}/dns_records`, {
+      const host = await freeHostname(zone, base);
+      await api('POST', `/zones/${zone}/dns_records`, {
         type: 'CNAME',
         name: host,
         content: `${tunnelId}.cfargotunnel.com`,

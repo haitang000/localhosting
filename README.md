@@ -544,10 +544,13 @@ UDP 服务（比如某些游戏服）需要在 frp 里再加一段 `type = "udp"
 不想每次手动配 frp / cloudflared，可以让面板全程代劳。前提：
 
 - 机器上装了 `cloudflared`（在 PATH 里，`CF_TUNNEL_BIN` 可指定路径）
-- 一个 Cloudflare API Token，权限含 **Zone:DNS:Edit** 和 **Cloudflare Tunnel:Edit**
-  （作用于目标 Zone 和 Account）
+- 一个 Cloudflare API Token，权限含 **Zone:DNS:Edit**、**Zone:Zone:Read**（作用于
+  目标 Zone）和 **Cloudflare Tunnel:Edit**（作用于 Account）
 - `.env` 里填上 `CF_TUNNEL_ENABLED=true`、`CF_API_TOKEN`、`CF_ACCOUNT_ID`、
-  `CF_ZONE_ID`、`CF_TUNNEL_DOMAIN`（子域名挂在它下面，比如 `apps.example.com`）
+  `CF_TUNNEL_DOMAIN`（子域名挂在它下面，二级 `example.com` 或三级
+  `apps.example.com` 都行）。`CF_ZONE_ID` 可选：留空时面板拿域名逐级向上
+  查 Cloudflare API 自动解析出 Zone（`apps.example.com` → `example.com`），
+  所以 Token 要带 Zone:Read；不想给这个权限就手动把 Zone ID 填上
 
 开起来之后：
 
