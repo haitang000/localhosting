@@ -156,9 +156,20 @@ function killChild(tunnelId) {
 }
 
 function spawnRun(tunnelId, cfgFile) {
+  // cloudflared resolves its default config directory from the Windows user
+  // profile even when --config is supplied. Keep that directory writable for
+  // service accounts whose profile is read-only or unavailable.
+  const writableHome = credDir();
+  fs.mkdirSync(writableHome, { recursive: true });
   const child = spawn(config.cfTunnelBin, ['tunnel', '--config', cfgFile, 'run', tunnelId], {
     windowsHide: true,
-    env: { ...process.env, NO_AUTOUPDATE: '1' },
+    env: {
+      ...process.env,
+      NO_AUTOUPDATE: '1',
+      CLOUDFLARED_HOME: writableHome,
+      HOME: writableHome,
+      USERPROFILE: writableHome,
+    },
   });
   const ring = [];
   const push = (l) => {
