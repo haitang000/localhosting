@@ -27,6 +27,11 @@ const FILES = [
   'editor.js',
   'icons.js',
   'style.css',
+  'landing.css',
+  'landing-hero.js',
+  'landing-scroll.js',
+  'vendor/gsap.min.js',
+  'vendor/ScrollTrigger.min.js',
   'vendor/marked.esm.js',
 ];
 

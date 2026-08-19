@@ -6,6 +6,7 @@ import compression from 'compression';
 import { config, ROOT, panelBaseUrl, panelAddressUnset, siteAddress } from './config.js';
 import { preloadStaticAssets, servePrecompressed } from './static-assets.js';
 import * as seo from './seo.js';
+import { renderLanding } from './landing.js';
 import { attachUser, bootstrapAdmin } from './auth.js';
 import { publicTemplates } from './templates.js';
 import { poolStats } from './ports.js';
@@ -81,6 +82,9 @@ const MAINT_OPEN_EXACT = [
   '/terms',
   '/terms.html',
   '/style.css',
+  '/landing.css',
+  '/landing-hero.js',
+  '/landing-scroll.js',
   '/app.js',
   '/editor.js',
   '/icons.js',
@@ -314,7 +318,10 @@ app.get('/api/announcements', (_req, res) => {
    canonical / og:url / sitemap 只在面板知道自己的公网地址时才给出 ——
    不然会把 localhost 写进搜索引擎。 */
 
-app.get(['/', '/index.html'], (_req, res) => {
+/* 首页按人分流：已登录的直接给 SPA 壳（常客不该多点一下），陌生访客给
+   landing 介绍页。登录页从此有了固定地址 /login —— landing 上的「进入
+   面板 / 注册」和所有外部书签都指向它。 */
+const renderPanelShell = (res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html');
   res.send(
@@ -326,7 +333,40 @@ app.get(['/', '/index.html'], (_req, res) => {
       hasPublicUrl: !panelAddressUnset(),
     })
   );
+};
+
+// landing 模板区点名的「招牌」：从模板库里按 id 取名字，模板下架了就自然消失。
+const LANDING_STAR_TEMPLATES = [
+  'nginx', 'wordpress', 'halo', 'code-server', 'jupyter', 'postgresql',
+  'mysql', 'redis', 'grafana', 'jellyfin', 'open-webui', 'minecraft',
+];
+
+app.get('/', attachUser, (req, res) => {
+  if (req.user) return renderPanelShell(res);
+  // 分类计数现数现用：landing 上写的「N 个模板、几大类」跟着模板库走。
+  const tpl = publicTemplates();
+  const byCat = new Map();
+  for (const t of tpl) byCat.set(t.category, (byCat.get(t.category) || 0) + 1);
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html');
+  res.send(
+    renderLanding({
+      name: panelName(),
+      color: panelColor(),
+      description: panelDescription(),
+      baseUrl: panelBaseUrl(),
+      hasPublicUrl: !panelAddressUnset(),
+      openRegistration: config.openRegistration,
+      welcomePoints: config.welcomePoints || null,
+      sitesEnabled: config.sitesEnabled,
+      templateTotal: tpl.length,
+      categories: [...byCat.entries()].map(([label, count]) => ({ label, count })),
+      stars: LANDING_STAR_TEMPLATES.map((id) => tpl.find((t) => t.id === id)?.name).filter(Boolean),
+    })
+  );
 });
+
+app.get(['/index.html', '/login'], (_req, res) => renderPanelShell(res));
 
 app.get('/robots.txt', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache');

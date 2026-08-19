@@ -1,0 +1,632 @@
+/* ============================================================================
+   landing.css — 介绍页（未登录访客打开 / 看到的页面，由 src/landing.js 渲染）
+   ----------------------------------------------------------------------------
+   只放布局：颜色、圆角、阴影、缓动全部来自 style.css 的设计变量，浅深两套
+   配色因此自动跟着走；主题色由渲染时按管理后台的设置注入 :root。
+   类名统一 ld- 前缀，不与面板 SPA 的样式相互渗透。
+   ========================================================================== */
+
+/* 锚点跳转带缓动（除非访客要求减少动效）；sticky 导航会盖住落点，下移一截 */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+.ld section[id] {
+  scroll-margin-top: 84px;
+}
+
+/* ── 通用容器 ── */
+.ld-wrap {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── 按钮：面板 button 的镜像（这里是 <a>，style.css 的 .primary 只挂在
+   button 标签上，拿过来用会悄悄丢样式，所以自成一套、值保持一致） ── */
+.ld-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--default-100);
+  color: var(--foreground);
+  transition: background var(--fast), filter var(--fast), transform var(--fast);
+}
+.ld-btn:hover {
+  background: var(--default-200);
+  text-decoration: none;
+}
+.ld-btn:active {
+  transform: scale(0.97);
+}
+.ld-btn.primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.ld-btn.primary:hover {
+  background: var(--primary);
+  filter: brightness(1.1);
+}
+.ld-btn.ghost {
+  background: transparent;
+  color: var(--default-500);
+}
+.ld-btn.ghost:hover {
+  background: var(--default-100);
+  color: var(--foreground);
+}
+.ld a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+/* 按钮里的 icon：比文字小一号，随按钮一起居中（.ld-btn 已有 gap） */
+.ld-btn .ld-ic {
+  width: 15px;
+  height: 15px;
+}
+
+/* ── 顶部导航 ── */
+.ld-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--divider);
+}
+.ld-nav-in {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 60px;
+}
+.ld-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.ld-brand:hover {
+  text-decoration: none;
+}
+/* 导航里的标记：静态（不重放组装动画），缩到和文字同高 */
+.ld-brand .dotmark {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 0;
+}
+.ld-nav nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.ld-nav nav a {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--default-500);
+  font-size: 13.5px;
+  transition: color var(--fast), background var(--fast);
+}
+.ld-nav nav a:hover {
+  color: var(--foreground);
+  background: var(--default-100);
+  text-decoration: none;
+}
+.ld-nav .ld-btn {
+  padding: 7px 14px;
+  font-size: 13.5px;
+}
+
+/* ── hero：左文右标的两栏，深色底上的品牌色粒子 logo（物理在页尾脚本里） ── */
+.ld-hero {
+  position: relative;
+  padding: 96px 0 88px;
+  overflow: hidden;
+  /* 夜色底：品牌色粒子要有暗底才托得住；右上晕开的一抹跟着管理员的主题色走 */
+  background:
+    radial-gradient(110% 90% at 78% 22%, color-mix(in srgb, var(--primary) 22%, #06080d), transparent 62%),
+    linear-gradient(180deg, #0a0d14, #06080d);
+  color: #fff;
+}
+.ld-hero-in {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 56px;
+}
+.ld-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.ld-hero-visual {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+/* 粒子 logo 画布：放大的品牌标记，尺寸里外都是正方形 */
+.ld-logo {
+  display: block;
+  width: clamp(240px, 32vw, 360px);
+  aspect-ratio: 1;
+}
+/* 深底上的幽灵按钮：默认的灰字灰底是给白底导航的，这里换成半透明白 */
+.ld-hero .ld-btn.ghost {
+  color: rgba(255, 255, 255, 0.8);
+}
+.ld-hero .ld-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.ld-eyebrow {
+  margin: 0 0 10px;
+  /* hero 是深底，眉题用主题色调亮（浅色方案的 primary-strong 在夜色上不够亮） */
+  color: color-mix(in srgb, var(--primary) 45%, white);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.ld-hero h1 {
+  margin: 0 0 16px;
+  max-width: 720px;
+  font-size: clamp(30px, 5.2vw, 44px);
+  line-height: 1.18;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.ld-sub {
+  margin: 0 0 30px;
+  max-width: 620px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 16px;
+}
+.ld-cta {
+  display: flex;
+  justify-content: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ld-cta .ld-btn {
+  padding: 11px 26px;
+  font-size: 15px;
+}
+.ld-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 0 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+/* 注册实况行的礼物 icon：眉题同款的主题色调亮色 */
+.ld-meta .ld-ic {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: color-mix(in srgb, var(--primary) 45%, white);
+}
+.ld-meta b {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── 分节 ── */
+.ld-section {
+  padding: 72px 0;
+}
+.ld-section.alt {
+  background: var(--default-50);
+}
+.ld-section h2 {
+  margin: 0 0 14px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* 标题下的主题色点缀条：GSAP 滚动入场时从中间划开（landing-scroll.js）；
+   不跑 JS 时就是一根安静的静态色条 */
+.ld-h2-bar {
+  display: block;
+  width: 54px;
+  height: 3px;
+  margin: 0 auto 36px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 55%, white), var(--primary), color-mix(in srgb, var(--primary) 55%, white));
+}
+/* 标题逐字入场时由 JS 包出的字符 span；inline-block 才能被 GSAP 变换 */
+.ld-ch {
+  display: inline-block;
+}
+/* 标题里的计数数字：滚动计数时用等宽数字，颜色点一笔主题色 */
+.ld-num {
+  color: var(--primary-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 特性卡片 ── */
+.ld-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.ld-card {
+  position: relative;
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 22px;
+  /* 入场由 GSAP 接手，落定后 clearProps，悬停提升交给这里 */
+  transition: transform var(--base), box-shadow var(--base);
+}
+.ld-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+}
+/* 指针追光：--mx/--my 由 landing-scroll.js 在 pointermove 里写入；
+   不跑 JS 就是一张普通卡片 */
+.ld-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), var(--primary-flat), transparent 65%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--base);
+}
+.ld-card:hover::before {
+  opacity: 1;
+}
+.ld-ic {
+  width: 20px;
+  height: 20px;
+}
+/* 图标坐在主题色的浅色块上：flat 色由 --primary 派生，管理后台改色跟着走 */
+.ld-card .ld-ic {
+  display: block;
+  width: 38px;
+  height: 38px;
+  padding: 9px;
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+.ld-card h3 {
+  margin: 14px 0 6px;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.ld-card p {
+  margin: 0;
+  color: var(--default-500);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+/* ── 模板分类 ── */
+.ld-cats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.ld-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--content1);
+  box-shadow: var(--shadow-sm);
+  font-size: 14px;
+  font-weight: 500;
+  transition: transform var(--base), box-shadow var(--base);
+}
+.ld-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.ld-chip b {
+  color: var(--default-400);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* 分类 icon：与计数同色的低调描边，不跟标签抢戏 */
+.ld-chip .ld-ic {
+  width: 15px;
+  height: 15px;
+  color: var(--default-400);
+}
+.ld-names {
+  margin: 26px 0 0;
+  text-align: center;
+  color: var(--default-500);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.ld-note {
+  margin: 8px 0 0;
+  text-align: center;
+  color: var(--default-400);
+  font-size: 13px;
+}
+
+/* ── 流程 ── */
+.ld-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  counter-reset: step;
+}
+.ld-steps li {
+  position: relative;
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+}
+/* 步骤间的连接线：只在四列布局下出现，随入场从左往右划出（scaleX）。
+   手机/两列时卡片上下堆叠，线没意义，藏掉。 */
+.ld-step-link {
+  display: none;
+}
+@media (min-width: 901px) {
+  .ld-steps li:not(:last-child) .ld-step-link {
+    display: block;
+    position: absolute;
+    top: 33px;
+    left: 100%;
+    width: 16px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-flat));
+  }
+}
+.ld-step-n {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+.ld-steps h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+/* 步骤标题旁的小 icon：与序号圆点同源的主题色 */
+.ld-steps h3 .ld-ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--primary-strong);
+}
+.ld-steps p {
+  margin: 0;
+  color: var(--default-500);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+/* ── FAQ ── */
+.ld-faq {
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  gap: 10px;
+}
+.ld-faq details {
+  background: var(--content1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden; /* summary 的下边框收在圆角里 */
+}
+.ld-faq summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  font-size: 14.5px;
+  font-weight: 500;
+  list-style: none;
+  user-select: none;
+  transition: background var(--fast);
+}
+.ld-faq summary::-webkit-details-marker {
+  display: none;
+}
+/* 问题行：icon + 文字包在一起，才能与右侧折叠箭头 space-between */
+.ld-q {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ld-q .ld-ic {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--primary-strong);
+}
+.ld-faq summary:hover {
+  background: var(--default-50);
+}
+/* 折叠箭头：收起时朝右 ›，展开时转成朝下 ⌄ */
+.ld-faq summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-right: 1.7px solid var(--default-400);
+  border-bottom: 1.7px solid var(--default-400);
+  transform: rotate(-45deg);
+  transition: transform var(--base);
+}
+.ld-faq details[open] summary::after {
+  transform: rotate(45deg);
+}
+.ld-faq details[open] summary {
+  border-bottom: 1px solid var(--divider);
+}
+/* 展开内容的包装层：GSAP 对它做高度动画（0 ↔ auto）；不跑 JS 时
+   details 原生并叠还是能用 */
+.ld-faq-body {
+  overflow: hidden;
+}
+.ld-faq details p {
+  margin: 0;
+  padding: 14px 20px 16px;
+  color: var(--default-500);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.ld-faq p a {
+  color: var(--primary-strong);
+}
+
+/* ── 收尾 CTA 横幅：hero 的夜色底在页尾再呼应一次 ── */
+.ld-band {
+  padding: 96px 0;
+  text-align: center;
+  color: #fff;
+  background:
+    radial-gradient(120% 130% at 50% 135%, color-mix(in srgb, var(--primary) 30%, #06080d), transparent 62%),
+    linear-gradient(180deg, #06080d, #0a0d14);
+}
+.ld-band h2 {
+  margin: 0 0 12px;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.ld-band p {
+  margin: 0 0 30px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
+}
+.ld-band-btn {
+  padding: 12px 34px;
+  font-size: 15.5px;
+}
+
+/* ── 页脚 ── */
+.ld-foot {
+  border-top: 1px solid var(--divider);
+  padding: 32px 0;
+  font-size: 13px;
+  color: var(--default-500);
+}
+.ld-foot-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ld-foot b {
+  color: var(--foreground);
+}
+.ld-foot nav {
+  display: flex;
+  gap: 18px;
+}
+.ld-foot nav a {
+  color: var(--default-500);
+}
+.ld-foot nav a:hover {
+  color: var(--foreground);
+}
+.ld-power {
+  color: var(--default-400);
+}
+
+/* ── 响应式 ── */
+@media (max-width: 900px) {
+  .ld-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ld-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  /* 导航只留品牌和 CTA；锚点在手机上本来就是要滑过去的内容 */
+  .ld-nav nav {
+    display: none;
+  }
+  .ld-grid,
+  .ld-steps {
+    grid-template-columns: 1fr;
+  }
+  .ld-hero {
+    padding-top: 64px;
+    padding-bottom: 56px;
+  }
+  .ld-hero-in {
+    flex-direction: column;
+    gap: 32px;
+  }
+  .ld-hero-text {
+    text-align: center;
+  }
+  .ld-cta {
+    justify-content: center;
+  }
+  /* 手机上 hero 文案居中，带 icon 的注册实况行跟着居中 */
+  .ld-meta {
+    justify-content: center;
+  }
+  .ld-hero-visual {
+    order: -1;
+  }
+  .ld-logo {
+    width: 200px;
+  }
+  .ld-section {
+    padding: 56px 0;
+  }
+  .ld-band {
+    padding: 72px 0;
+  }
+  .ld-foot-in {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* 访客要求减少动效：点阵标记的波纹与组装都停（点本来就在，只是不闪了）；
+   粒子 logo 同理 —— 页尾脚本只画一层静态粒子，不做物理 */
+@media (prefers-reduced-motion: reduce) {
+  .ld .dotmark circle {
+    animation: none;
+  }
+}

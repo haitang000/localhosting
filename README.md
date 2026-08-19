@@ -24,6 +24,9 @@
   （Nginx、Caddy、WordPress、Halo、code-server、Jupyter、PostgreSQL、MySQL、Redis、MongoDB、ClickHouse、
   Grafana、Jellyfin、Open WebUI、Minecraft、Factorio 等），可按券或按账号放开任意镜像
 - **端口池自动分配**，一段连续端口整体转发出去就完事
+- **Landing page**：未登录访客打开 `/` 看到的是介绍页（特性 / 模板 / 流程 / FAQ，
+  模板数量和分类跟着模板库自动走），登录页从此有了固定地址 `/login`（`/login#/register`
+  直达注册 tab）；已登录用户打开 `/` 照旧直达面板
 - **实例管理**：启动/停止/重启/删除、实时日志、资源监控
 - **容器内的实时终端**：网页版 `docker exec -it`，会话活在服务端（刷新回来接着用）。
   彩色输出、`vim`/`htop` 这类全屏程序、Tab 补全、断线自动接回、密码提示自动掩码，

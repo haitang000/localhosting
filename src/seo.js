@@ -101,6 +101,9 @@ Disallow: /app.js
 Disallow: /editor.js
 Disallow: /icons.js
 Disallow: /style.css
+Disallow: /landing.css
+Disallow: /landing-hero.js
+Disallow: /landing-scroll.js
 Disallow: /vendor/
 Disallow: /announcement-images/
 ${baseUrl ? `Sitemap: ${baseUrl}/sitemap.xml` : ''}

@@ -9,6 +9,15 @@ let timers = [];
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** Template art stays a fixed size; the original emoji remains the fallback. */
+const templateIcon = (template) => {
+  const emoji = `<span class="template-icon-emoji"${template.iconFile ? ' hidden' : ''}>${esc(template.icon)}</span>`;
+  const image = template.iconFile
+    ? `<img class="template-icon-image" src="/template-icons/${esc(template.iconFile)}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false" />`
+    : '';
+  return `<span class="template-icon" aria-hidden="true">${image}${emoji}</span>`;
+};
+
 const bytes = (n) => {
   if (!n) return '0 B';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -864,7 +873,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
   const fromHeight = app.querySelector('form.auth')?.offsetHeight ?? 0;
   app.className = 'auth-wrap';
   app.innerHTML = `
-    ${dotMark(brand, { assemble: fresh })}
+    <a class="auth-home" style="display:block;line-height:0;color:inherit" href="/" title="返回首页" aria-label="返回首页">${dotMark(brand, { assemble: fresh })}</a>
     <form class="card auth">
       <h1>${esc(brand)}</h1>
       <div class="sub">一键部署属于你自己的容器服务</div>
@@ -909,9 +918,13 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       }</button>
     </form>`;
 
-  app.querySelectorAll('[data-mode]').forEach(
-    (b) => (b.onclick = () => renderAuth(b.dataset.mode, { fresh: false }))
-  );
+  app.querySelectorAll('[data-mode]').forEach((b) => {
+    b.onclick = () => {
+      // tab 同步进 hash：landing 链来的 /login#/register 刷新后还停在注册 tab
+      history.replaceState(null, '', b.dataset.mode === 'register' ? '#/register' : '#/login');
+      renderAuth(b.dataset.mode, { fresh: false });
+    };
+  });
   const form = app.querySelector('form');
 
   // 《用户协议》：点开是弹窗，弹窗里点「我已阅读并同意」顺手替人把勾打上。
@@ -1074,6 +1087,9 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       activeTurnstileTracking?.cleanup?.();
       activeTurnstileTracking = null;
       state.user = user;
+      // 从 /login 登录的把地址归位到 / —— 面板的路由都在根路径的 hash 里，
+      // 别让 /login 在地址栏里赖着不动。
+      if (location.pathname === '/login') history.replaceState(null, '', '/');
       location.hash = '#/instances';
       await boot();
       // 见面礼直接说清楚是什么、能干什么，别让人回头再去问管理员。
@@ -2703,7 +2719,7 @@ function viewNew() {
     const card = (t) => {
       const short = t.ports.length > quota;
       return `<div class="card tpl ${draft.tplId === t.id ? 'on' : ''}" data-tpl="${esc(t.id)}">
-          <div class="icon">${t.icon}</div>
+          <div class="icon">${templateIcon(t)}</div>
           <div><div class="t-name">${esc(t.name)}</div>
             <div class="t-desc">${esc(t.description)}</div>
             <div class="t-desc mono" style="margin-top:6px">${esc(t.image)}</div>
@@ -2833,7 +2849,7 @@ function viewNew() {
       <form class="card nv-card" id="nv-form">
         <div class="hint" style="margin-bottom:14px">${
           t
-            ? `${t.icon} ${esc(t.name)} · <span class="mono">${esc(t.image)}</span>`
+            ? `${templateIcon(t)} ${esc(t.name)} · <span class="mono">${esc(t.image)}</span>`
             : `${icon('puzzle')}自定义镜像`
         }</div>
         <div class="two">
@@ -2909,7 +2925,7 @@ function viewNew() {
     const t = tpl();
     const v = draft.voucher;
     const rows = [
-      [`${icon('layers')}模板`, t ? `${t.icon} ${esc(t.name)}` : `${icon('puzzle')}自定义镜像`],
+      [`${icon('layers')}模板`, t ? `${templateIcon(t)} ${esc(t.name)}` : `${icon('puzzle')}自定义镜像`],
       [`${icon('container')}镜像`, `<span class="mono">${esc(t ? t.image : draft.image)}</span>`],
       [`${icon('boxes')}实例名`, `<span class="mono">${esc(draft.name)}</span>`],
       [
@@ -7429,7 +7445,11 @@ function route() {
     // 停用页优先于任何路由：hash 是可以随手改的，别让它绕回面板。
     if (state.disabled) return renderDisabled(state.disabled);
   if (state.cfg?.maintenance && state.user?.role !== 'admin') return renderMaintenance();
-  if (!state.user) return renderAuth();
+  // 未登录时 hash 只认 #/register：landing 的「免费注册」链到 /login#/register
+  if (!state.user)
+    return renderAuth(location.hash.startsWith('#/register') ? 'register' : 'login', {
+      fresh: false,
+    });
     const parts = location.hash.replace(/^#\/?/, '').split('/');
     const section = parts[0] || 'instances';
     const arg = parts[1];
@@ -7474,7 +7494,8 @@ async function boot() {
     app.querySelector('span').textContent = `无法连接面板服务：${e.message}`;
     return;
   }
-  if (!state.user) return renderAuth();
+  // 初次到达登录页：#/register 直接落在注册 tab 上（assemble 动画照放）
+  if (!state.user) return renderAuth(location.hash.startsWith('#/register') ? 'register' : 'login');
   await route();
   maybeOpenWizard();
 }
