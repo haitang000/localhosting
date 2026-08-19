@@ -140,7 +140,17 @@ export const config = {
   cfTunnelDomain: (process.env.CF_TUNNEL_DOMAIN || '').trim(),
   // 隧道名前缀；凭据和 ingress 配置存在 CF_TUNNEL_CRED_DIR
   cfTunnelPrefix: process.env.CF_TUNNEL_PREFIX || 'lh',
-  cfTunnelBin: process.env.CF_TUNNEL_BIN || 'cloudflared',
+  // Resolve the Windows installer location up front so a service process with
+  // a reduced PATH can still launch cloudflared. CF_TUNNEL_BIN remains an
+  // explicit override for custom installations.
+  cfTunnelBin:
+    process.env.CF_TUNNEL_BIN ||
+    (process.platform === 'win32'
+      ? [
+          path.join(process.env.ProgramFiles || '', 'cloudflared', 'cloudflared.exe'),
+          path.join(process.env['ProgramFiles(x86)'] || '', 'cloudflared', 'cloudflared.exe'),
+        ].find((candidate) => candidate && fs.existsSync(candidate)) || 'cloudflared'
+      : 'cloudflared'),
   cfTunnelCredDir: process.env.CF_TUNNEL_CRED_DIR || path.join(dataDir, 'cloudflared'),
 
   // --- Per-account cap. Memory / CPU / ports come from the resource voucher
