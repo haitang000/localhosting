@@ -156,8 +156,11 @@ function dependencyConfig(template, provided, user) {
       for (const key of def.source?.[kind] ?? []) if (source[key] !== undefined && source[key] !== '') return String(source[key]);
       return '';
     };
-    const host = `${containerNameFor(user.username, row.name)}:${def.port}`;
-    if (def.target.host) env[def.target.host] = host;
+    const host = containerNameFor(user.username, row.name);
+    // Some consumers (for example WordPress) expect HOST to include the
+    // port, while consumers with a separate PORT variable (Sub2API) pass the
+    // host through DNS resolution and must receive only the container name.
+    if (def.target.host) env[def.target.host] = def.target.port ? host : `${host}:${def.port}`;
     if (def.target.port) env[def.target.port] = String(def.port);
     for (const kind of ['user', 'password', 'database']) {
       const target = def.target[kind];
