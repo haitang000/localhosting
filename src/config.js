@@ -31,12 +31,20 @@ const bool = (v, fallback) => (v === undefined ? fallback : /^(1|true|yes|on)$/i
 
 const portRange = (process.env.PORT_POOL || '20000-20200').split('-');
 const dataDir = process.env.DATA_DIR || path.join(ROOT, 'data');
+const requestedLogLevel = String(process.env.LOG_LEVEL || 'info').toLowerCase();
+const logLevel = /^(debug|info|warn|error)$/.test(requestedLogLevel) ? requestedLogLevel : 'info';
 
 export const config = {
   // --- Panel ---
   port: num(process.env.PANEL_PORT, 8099),
   host: process.env.PANEL_HOST || '0.0.0.0',
   dataDir,
+  // Logging is intentionally dependency-free so it works during bootstrap too.
+  // debug adds lifecycle and security details; HTTP logging can be disabled in
+  // very high traffic deployments, while API requests remain enabled by default.
+  logLevel,
+  logHttp: bool(process.env.LOG_HTTP, true),
+  logHttpStatic: bool(process.env.LOG_HTTP_STATIC, false),
   sessionTtlDays: num(process.env.SESSION_TTL_DAYS, 14),
   trustProxy: bool(process.env.TRUST_PROXY, false),
   // 面板品牌名（登录页、顶栏、浏览器标题）；只作 settings 表的播种值，

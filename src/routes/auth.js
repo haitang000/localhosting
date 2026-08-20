@@ -20,6 +20,7 @@ import { createPow, verifyPow, createTurnstile, mintToken, verifyTurnstile, veri
 import { config } from '../config.js';
 import { TERMS_VERSION } from '../terms.js';
 import * as announcements from '../announcements.js';
+import { logger } from '../logger.js';
 
 export const router = Router();
 
@@ -178,6 +179,7 @@ router.post('/register', async (req, res, next) => {
     }
 
     const user = createUser({ username, password });
+    logger.info('auth.register.success', { requestId: req.requestId, userId: user.id, username, ip: req.ip, mode: detail });
     clear(`reg:${req.ip}`);
     if (config.openRegistration) recordWindow(`reg-ok:${req.ip}`);
     audit(user, 'user.register', username, detail);
@@ -190,6 +192,7 @@ router.post('/register', async (req, res, next) => {
     setSessionCookie(res, token, expires);
     res.json({ user: publicUser(user), welcomePoints: welcomePoints || null });
   } catch (err) {
+    logger.error('auth.register.error', { requestId: req.requestId, username: String(req.body?.username || '').trim(), ip: req.ip, error: err });
     next(err);
   }
 });
@@ -210,6 +213,7 @@ router.post('/login', async (req, res, next) => {
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     if (!user || !verifyPassword(password, user.password_hash)) {
       fail(key);
+      logger.warn('auth.login.failed', { requestId: req.requestId, username, ip: req.ip, reason: 'invalid_credentials' });
       return res.status(401).json({ error: '用户名或密码错误' });
     }
     // 密码对了才承认这个账号被停用：否则这就成了一个不用密码的用户名探测器。
@@ -219,6 +223,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     clear(key);
+    logger.info('auth.login.success', { requestId: req.requestId, userId: user.id, username: user.username, ip: req.ip });
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(now(), user.id);
     const { token, expires } = createSession(user.id);
     setSessionCookie(res, token, expires);
@@ -227,11 +232,13 @@ router.post('/login', async (req, res, next) => {
     recordAgreement(user);
     res.json({ user: publicUser(user) });
   } catch (err) {
+    logger.error('auth.login.error', { requestId: req.requestId, username: String(req.body?.username || '').trim(), ip: req.ip, error: err });
     next(err);
   }
 });
 
 router.post('/logout', (req, res) => {
+  logger.info('auth.logout', { requestId: req.requestId, userId: req.user?.id ?? null, username: req.user?.username ?? null, ip: req.ip });
   destroySession(req.sessionToken);
   res.clearCookie(COOKIE, { path: '/' });
   res.json({ ok: true });

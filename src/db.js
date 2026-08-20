@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { logger } from './logger.js';
 
 export const db = new DatabaseSync(path.join(config.dataDir, 'panel.db'));
 
@@ -211,6 +212,7 @@ function addColumn(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   if (cols.some((c) => c.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  logger.debug('db.migration.applied', { table, column });
 }
 addColumn('users', 'onboarding_json', 'TEXT');
 addColumn('invites', 'type', "TEXT NOT NULL DEFAULT 'register'");
@@ -266,8 +268,15 @@ addColumn('instances', 'tunnel_json', 'TEXT');
 
 export const now = () => new Date().toISOString();
 
+logger.info('db.ready', { dataDir: config.dataDir });
+
 export function audit(user, action, target, detail) {
   db.prepare(
     'INSERT INTO audit_log (user_id, username, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(user?.id ?? null, user?.username ?? null, action, target ?? null, detail ? String(detail) : null, now());
+  logger.debug('audit.write', {
+    userId: user?.id ?? null,
+    action,
+    target: target ?? null,
+  });
 }

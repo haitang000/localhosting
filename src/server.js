@@ -29,11 +29,14 @@ import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/s
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
 import { seedSettings, panelName, panelColor, panelDescription, captchaMode, maintenanceMode } from './settings.js';
+import { logger, requestLogger, logUnhandledErrors } from './logger.js';
 
 seedBundles();
 seedSettings();
 
 const app = express();
+logUnhandledErrors();
+app.use(requestLogger);
 if (config.trustProxy) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
@@ -429,7 +432,14 @@ app.use((_req, res) => sendNotFoundPage(res));
 // eslint-disable-next-line no-unused-vars -- express identifies error handlers by arity
 app.use((err, _req, res, _next) => {
   const status = err.status || err.statusCode || 500;
-  if (status >= 500) console.error('[error]', err);
+  const writeError = status >= 500 ? logger.error : logger.warn;
+  writeError('http.error', {
+    requestId: _req.requestId,
+    method: _req.method,
+    path: _req.path,
+    status,
+    error: err,
+  });
   res.status(status >= 400 && status < 600 ? status : 500).json({
     error: err instanceof HttpError || status < 500 ? err.message : '服务器内部错误',
   });
@@ -486,6 +496,14 @@ if (isFirstLaunch) {
 }
 
 const server = app.listen(config.port, config.host, async () => {
+  logger.info('server.started', {
+    host: config.host,
+    port: config.port,
+    node: process.version,
+    platform: process.platform,
+    logLevel: config.logLevel,
+    httpLogging: config.logHttp,
+  });
   console.log(`\n  localhosting 面板已启动  →  http://localhost:${config.port}`);
   console.log(`  端口池 ${config.portPoolStart}-${config.portPoolEnd}，对外主机名 ${config.publicHost || '(未设置，显示 localhost)'}`);
   if (boot) {
@@ -506,17 +524,35 @@ const server = app.listen(config.port, config.host, async () => {
   try {
     const v = await dk.ping();
     console.log(`  Docker 已连接：${v.Version} (${v.Os}/${v.Arch})\n`);
-    await reconcile();
+    const startupStep = async (name, task) => {
+      const started = process.hrtime.bigint();
+      logger.debug('startup.step.begin', { name });
+      try {
+        const result = await task();
+        logger.debug('startup.step.complete', {
+          name,
+          durationMs: Math.round(Number(process.hrtime.bigint() - started) / 1e4) / 100,
+        });
+        return result;
+      } catch (error) {
+        logger.error('startup.step.failed', { name, error });
+        throw error;
+      }
+    };
+    await startupStep('reconcile', reconcile);
     // Before the sleeper: an instance that expired while the panel was down
     // should never get its ports parked for a wake that will not be allowed.
-    await lifespan.start();
-    await sleeper.start();
-    await diskguard.start();
+    await startupStep('lifespan', () => lifespan.start());
+    await startupStep('sleeper', () => sleeper.start());
+    await startupStep('diskguard', () => diskguard.start());
     // 危险操作预警：定期扫容器进程 + 各检测点已经在路由里挂好
-    await guard.start();
+    await startupStep('guard', () => guard.start());
     // 面板重启后把断掉的 cloudflared 进程拉起来（看护循环在里面）
+    logger.debug('startup.step.begin', { name: 'cloudflare-tunnel' });
     cftunnel.start();
+    logger.debug('startup.step.complete', { name: 'cloudflare-tunnel' });
   } catch (err) {
+    logger.warn('server.dependencies_unavailable', { dependency: 'docker', error: err });
     console.warn(`  ⚠ 暂时连不上 Docker：${err.message}`);
     console.warn('    面板仍可登录，但创建实例会失败。请启动 Docker Desktop / dockerd 后重试。\n');
   }
@@ -524,6 +560,7 @@ const server = app.listen(config.port, config.host, async () => {
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
+    logger.info('server.shutdown', { signal: sig });
     console.log('\n正在关闭...');
     sleeper.stop().catch(() => {});
     lifespan.stop();
