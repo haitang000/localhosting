@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS instances (
   memory_mb    INTEGER NOT NULL,
   cpus         REAL NOT NULL,
   env_json     TEXT NOT NULL DEFAULT '{}',
+  dependencies_json TEXT NOT NULL DEFAULT '{}',
   ports_json   TEXT NOT NULL DEFAULT '[]',
   volume_name  TEXT,
   invite_code  TEXT,
@@ -223,6 +224,7 @@ addColumn('invites', 'instance_days', 'INTEGER');
 addColumn('sites', 'memory_mb', 'INTEGER NOT NULL DEFAULT 32');
 addColumn('sites', 'cpus', 'REAL NOT NULL DEFAULT 0.1');
 addColumn('instances', 'invite_code', 'TEXT');
+addColumn('instances', 'dependencies_json', "TEXT NOT NULL DEFAULT '{}'");
 addColumn('instances', 'cmd_json', 'TEXT');
 addColumn('instances', 'volume_paths_json', 'TEXT');
 addColumn('instances', 'reject_reason', 'TEXT');

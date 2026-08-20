@@ -2228,6 +2228,10 @@ function envFieldHtml(f, value) {
     <div class="hint mono">${esc(f.key)}</div></label>`;
 }
 
+function dependencyEnvKeys(t) {
+  return new Set((t?.dependencies ?? []).flatMap((d) => Object.values(d.target || {}).filter(Boolean)));
+}
+
 /* ---------------- create instance: four steps ----------------
    支付 → 模板 → 配置 → 确认。All input lives in `draft`, so walking back and
    forth never loses anything. Payment comes first on purpose: 不填券就是花积分
@@ -2245,6 +2249,7 @@ function viewNew() {
     name: '',
     image: '',
     env: {}, // template env values the user typed
+    dependencies: {}, // dependency role -> existing instance id
     portsText: '',
     envText: '',
     volumePath: '',
@@ -2255,6 +2260,15 @@ function viewNew() {
     note: '',
   };
   let step = 0;
+  let availableInstances = [];
+  api('/instances')
+    .then((r) => {
+      availableInstances = r.instances || [];
+      if (step === 2) drawConfig();
+    })
+    .catch(() => {
+      availableInstances = [];
+    });
 
   shell(
     'new',
@@ -2834,6 +2848,7 @@ function viewNew() {
       if (draft.tplId !== id) {
         draft.tplId = id;
         draft.env = {}; // 换了模板，上一个模板的环境变量没意义
+        draft.dependencies = {};
       }
       go(2);
     };
@@ -2845,6 +2860,39 @@ function viewNew() {
   /* --- 第 3 步：配置 --- */
   function drawConfig() {
     const t = tpl();
+    const deps = t?.dependencies ?? [];
+    const depKeys = dependencyEnvKeys(t);
+    const instanceOptions = (d) =>
+      availableInstances.filter(
+        (i) =>
+          i.hasContainer &&
+          ['running', 'stopped', 'sleeping'].includes(i.dbStatus || i.status) &&
+          d.matchTemplates.includes(i.templateId)
+      );
+    const depFields = deps
+      .map((d) => {
+        const options = instanceOptions(d);
+        return `<label class="field"><span>${icon('link')}${esc(d.label)} *</span>
+          <select name="dep_${esc(d.key)}" ${options.length ? '' : 'disabled'}>
+            <option value="">${options.length ? '请选择已有实例' : '暂无可用实例'}</option>
+            ${options
+              .map(
+                (i) =>
+                  `<option value="${esc(i.id)}" ${draft.dependencies[d.key] === i.id ? 'selected' : ''}>${esc(i.name)} · ${esc(
+                    state.templates.find((x) => x.id === i.templateId)?.name || i.templateId
+                  )} · ${esc(i.status)}</option>`
+              )
+              .join('')}
+          </select>
+          ${
+            options.length
+              ? '<div class="hint">将自动填充容器地址、端口和数据库凭据</div>'
+              : `<div class="hint">请先创建一个匹配的${esc(d.label)}实例，再返回这里选择 · <a href="#/new">去创建实例</a></div>`
+          }
+        </label>`;
+      })
+      .join('');
+    const envFields = t ? t.env.filter((f) => !depKeys.has(f.key)) : [];
     slot.innerHTML = `
       <form class="card nv-card" id="nv-form">
         <div class="hint" style="margin-bottom:14px">${
@@ -2868,7 +2916,11 @@ function viewNew() {
         </div>
         ${
           t
-            ? t.env.map((f) => envFieldHtml(f, draft.env[f.key])).join('') +
+            ? `${
+                deps.length
+                  ? `<div class="hint" style="margin-bottom:10px">${icon('network')}选择已有前置实例，系统会使用共享 Docker 网络内的容器名自动连接。DOCKER_NETWORK 需为用户自定义网络。</div>${depFields}`
+                  : ''
+              }${envFields.map((f) => envFieldHtml(f, draft.env[f.key])).join('')}` +
               (t.ports.length
                 ? `<div class="hint">${icon('plug')}将自动分配 ${t.ports.length} 个对外端口：${t.ports
                     .map((p) => `${p.label} (${p.container}/${p.protocol})`)
@@ -2898,7 +2950,20 @@ function viewNew() {
       const fd = new FormData(form);
       draft.name = String(fd.get('name') || '').trim();
       if (t) {
+        for (const d of deps) {
+          const value = fd.get(`dep_${d.key}`);
+          if (!value) {
+            if (!instanceOptions(d).length) {
+              toast(`请先创建${d.label}实例`, 'err');
+            } else {
+              toast(`请选择${d.label}`, 'err');
+            }
+            return;
+          }
+          draft.dependencies[d.key] = String(value);
+        }
         for (const f of t.env) {
+          if (depKeys.has(f.key)) continue;
           const v = fd.get(`env_${f.key}`);
           if (v !== null) draft.env[f.key] = String(v);
         }
@@ -2938,6 +3003,13 @@ function viewNew() {
       ],
     ];
     if (t) {
+      for (const d of t.dependencies ?? []) {
+        const linked = availableInstances.find((i) => i.id === draft.dependencies[d.key]);
+        rows.push([
+          `${icon('link')}${esc(d.label)}`,
+          linked ? `${esc(linked.name)} <span class="sub">（自动填充容器地址和凭据）</span>` : '未选择',
+        ]);
+      }
       rows.push([
         `${icon('plug')}对外端口`,
         t.ports.length
@@ -2945,6 +3017,7 @@ function viewNew() {
           : '不暴露',
       ]);
       for (const f of t.env) {
+        if (dependencyEnvKeys(t).has(f.key)) continue;
         const val = draft.env[f.key] ?? f.default ?? '';
         rows.push([
           esc(f.label || f.key),
@@ -3026,6 +3099,7 @@ function viewNew() {
           templateId: t?.id,
           note: draft.note,
           env: {},
+          dependencies: t?.dependencies?.length ? draft.dependencies : undefined,
         };
         if (state.cfg?.sleep?.enabled && draft.sleepEnabled !== null) {
           body.sleep = { enabled: draft.sleepEnabled, idleMinutes: draft.idleMinutes || undefined };
@@ -3355,6 +3429,19 @@ async function viewInstance(id) {
             ${i.state?.exitCode ? `<span>${icon('power')}退出码 ${i.state.exitCode}</span>` : ''}
           </div>
           ${i.note ? `<div class="hint">${icon('scroll-text')}备注：${esc(i.note)}</div>` : ''}
+        ${
+          Object.keys(i.dependencies || {}).length
+            ? `<div class="card">${cat('link', '关联实例', { flush: true })}
+               <div class="kv">${Object.entries(i.dependencies)
+                 .map(
+                   ([key, d]) =>
+                     `<span>${icon(d.available ? 'check' : 'triangle-alert')}${esc(key)}：${
+                       d.name ? `<b>${esc(d.name)}</b> · ${esc(d.status)}` : '实例已删除或不可用'
+                     }</span>`
+                 )
+                 .join('')}</div></div>`
+            : ''
+        }
          ${!waiting && i.status !== 'archived' && i.status !== 'banned' && i.sleep?.available ? sleepCardHtml(i) : ''}
         ${
           envRows

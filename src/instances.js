@@ -126,6 +126,55 @@ function buildCustomEnv(provided) {
   return { env, generated: {} };
 }
 
+function dependencyConfig(template, provided, user) {
+  const defs = template?.dependencies ?? [];
+  if (!defs.length) return { env: {}, dependencies: {} };
+  if (!provided || typeof provided !== 'object' || Array.isArray(provided)) {
+    throw bad(`模板「${template.name}」需要选择前置实例`);
+  }
+  const allowed = new Set(defs.map((d) => d.key));
+  for (const key of Object.keys(provided)) if (!allowed.has(key)) throw bad(`未知的前置依赖：${key}`);
+  if (['bridge', 'host', 'none'].includes(config.networkName) || !config.networkName) {
+    throw bad('当前 Docker 网络不支持按容器名连接前置实例，请将 DOCKER_NETWORK 配置为用户自定义网络');
+  }
+
+  const env = {};
+  const dependencies = {};
+  for (const def of defs) {
+    const id = String(provided[def.key] || '').trim();
+    if (!id) throw bad(`请选择${def.label}`);
+    const row = db.prepare('SELECT * FROM instances WHERE id = ? AND user_id = ?').get(id, user.id);
+    if (!row) throw new HttpError(404, `${def.label}不存在或无权访问`);
+    if (!row.container_id || !['running', 'stopped', 'sleeping'].includes(row.status)) {
+      throw bad(`${def.label}必须是已运行或已停止且已创建容器的实例`);
+    }
+    if (!def.matchTemplates.includes(row.template_id)) {
+      throw bad(`所选实例不是可用的${def.label}`);
+    }
+    const source = JSON.parse(row.env_json || '{}');
+    const valueOf = (kind) => {
+      for (const key of def.source?.[kind] ?? []) if (source[key] !== undefined && source[key] !== '') return String(source[key]);
+      return '';
+    };
+    const host = `${containerNameFor(user.username, row.name)}:${def.port}`;
+    if (def.target.host) env[def.target.host] = host;
+    if (def.target.port) env[def.target.port] = String(def.port);
+    for (const kind of ['user', 'password', 'database']) {
+      const target = def.target[kind];
+      if (!target) continue;
+      const value = valueOf(kind);
+      if (!value && kind !== 'password') throw bad(`${def.label}缺少${kind === 'user' ? '用户名' : '数据库名'}配置`);
+      if (value) env[target] = value;
+    }
+    dependencies[def.key] = row.id;
+  }
+  return { env, dependencies };
+}
+
+function containerNameFor(username, name) {
+  return `${config.containerPrefix}-${username}-${name}`.toLowerCase();
+}
+
 export async function createInstance(user, body) {
   const name = String(body.name || '').trim().toLowerCase();
   if (!NAME_RE.test(name)) throw bad('实例名需为 3-30 位小写字母、数字或连字符，且不能以连字符开头/结尾');
@@ -219,7 +268,9 @@ export async function createInstance(user, body) {
   const overCpu = config.regionMaxCpus > 0 && region.cpus + cpus > config.regionMaxCpus;
   if (overMem || overCpu) throw new HttpError(503, '当前区域已无剩余算力，请稍后再试');
 
-  const { env, generated } = template ? buildEnv(template, body.env) : buildCustomEnv(body.env);
+  const linked = template ? dependencyConfig(template, body.dependencies, user) : { env: {}, dependencies: {} };
+  const { env: templateEnv, generated } = template ? buildEnv(template, { ...body.env, ...linked.env }) : buildCustomEnv(body.env);
+  const env = template ? { ...templateEnv, ...linked.env } : templateEnv;
 
   // Idle sleep needs a TCP port to listen on while the container is down, so a
   // UDP-only or port-less instance simply cannot take part. Asking for it
@@ -278,9 +329,9 @@ export async function createInstance(user, body) {
   // foreign key onto instances(id).
   db.prepare(
     `INSERT INTO instances
-      (id, user_id, name, image, template_id, memory_mb, cpus, disk_mb, env_json, ports_json, volume_name,
+      (id, user_id, name, image, template_id, memory_mb, cpus, disk_mb, env_json, dependencies_json, ports_json, volume_name,
        invite_code, paid_points, bundle_id, cmd_json, volume_paths_json, note, sleep_enabled, idle_minutes, life_days, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
   ).run(
     id,
     user.id,
@@ -291,6 +342,7 @@ export async function createInstance(user, body) {
     cpus,
     diskMb,
     JSON.stringify(env),
+    JSON.stringify(linked.dependencies),
     volumeName,
     invite?.code ?? null,
     paidPoints || null,
@@ -566,7 +618,7 @@ async function provision(spec) {
 }
 
 async function provisionInner(spec) {
-  const containerName = `${config.containerPrefix}-${spec.user.username}-${spec.name}`.toLowerCase();
+  const containerName = containerNameFor(spec.user.username, spec.name);
 
   emit(spec.id, `准备镜像 ${spec.image} ...`);
   if (!(await dk.imageExists(spec.image))) {
@@ -630,6 +682,26 @@ export function ownersMap(userIds) {
 
 export async function serialize(row, { withState = true, owner } = {}) {
   const ports = JSON.parse(row.ports_json);
+  const dependencyIds = JSON.parse(row.dependencies_json || '{}');
+  const dependencyDefs = templateById(row.template_id)?.dependencies ?? [];
+  const dependencies = Object.fromEntries(
+    dependencyDefs.map((def) => {
+      const id = dependencyIds[def.key];
+      const linked = id ? db.prepare('SELECT id, name, template_id, status, container_id FROM instances WHERE id = ?').get(id) : null;
+      return [
+        def.key,
+        linked
+          ? {
+              instanceId: linked.id,
+              name: linked.name,
+              templateId: linked.template_id,
+              status: linked.status,
+              available: Boolean(linked.container_id && ['running', 'stopped', 'sleeping'].includes(linked.status)),
+            }
+          : { instanceId: id || null, name: null, templateId: null, status: 'deleted', available: false },
+      ];
+    })
+  );
   let state = null;
   if (withState && row.container_id) {
     try {
@@ -656,6 +728,8 @@ export async function serialize(row, { withState = true, owner } = {}) {
     userId: row.user_id,
     image: row.image,
     templateId: row.template_id,
+    hasContainer: Boolean(row.container_id),
+    dependencies,
     memoryMb: row.memory_mb,
     cpus: row.cpus,
     env: JSON.parse(row.env_json),
