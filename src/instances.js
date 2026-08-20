@@ -26,6 +26,30 @@ export class HttpError extends Error {
 
 const bad = (msg) => new HttpError(400, msg);
 
+/**
+ * Quote an instance renewal in blocks of RENEWAL_DAYS. Point-paid instances
+ * keep the price that was actually paid when they were created, prorated from
+ * their original lifespan. Voucher and legacy instances have no such price,
+ * so they retain the configured fallback rate.
+ */
+export function renewalQuote(row, days = config.renewalDays) {
+  const n = Math.round(Number(days));
+  const renewalDays = Math.round(Number(config.renewalDays));
+  if (!Number.isInteger(n) || n <= 0 || !Number.isInteger(renewalDays) || renewalDays <= 0) {
+    throw bad('续期天数配置有误，请联系管理员');
+  }
+
+  const paidPoints = Math.round(Number(row.paid_points));
+  const lifeDays = Math.round(Number(row.life_days));
+  const costPerBlock =
+    Number.isInteger(paidPoints) && paidPoints > 0 && Number.isInteger(lifeDays) && lifeDays > 0
+      ? Math.ceil((paidPoints * renewalDays) / lifeDays)
+      : config.renewalPointsCost;
+  const blocks = Math.ceil(n / renewalDays);
+
+  return { days: n, blocks, cost: blocks * costPerBlock };
+}
+
 export function usage(userId) {
   // 端口数用 SQLite 的 json_array_length 直接算，省掉每行一次 JSON.parse。
   const rows = db
@@ -668,6 +692,7 @@ export async function serialize(row, { withState = true, owner } = {}) {
       remainingMs: lifespan.remainingMs(row),
       graceRemainingMs: lifespan.graceRemainingMs(row),
       retentionDays: config.archiveRetentionDays || null,
+      renewal: Number(row.life_days) > 0 ? renewalQuote(row) : null,
     },
     // 自动 Cloudflare 隧道：hostnames / 进程是否在跑 / 最近输出，无凭据
     tunnel: row.tunnel_json ? cftunnel.info(row) : null,
@@ -843,13 +868,7 @@ export async function renewInstance(row, user, days) {
 
   const n = Math.round(Number(days));
   if (!Number.isInteger(n) || n <= 0) throw bad('续期天数需为正整数');
-  if (!Number.isFinite(config.renewalDays) || config.renewalDays <= 0) {
-    throw bad('续期天数配置有误，请联系管理员');
-  }
-
-  // 按续期套餐算价：每 renewalDays 天收 renewalPointsCost 分，不足按一个套餐算
-  const blocks = Math.ceil(n / config.renewalDays);
-  const cost = blocks * config.renewalPointsCost;
+  const { cost } = renewalQuote(row, n);
 
   const isAdmin = user.role === 'admin';
   if (!isAdmin) {

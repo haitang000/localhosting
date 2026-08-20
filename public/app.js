@@ -3240,8 +3240,8 @@ async function viewInstance(id) {
                    期间可以积分续期或下载数据。趁现在续期就不用中断服务了。</div>
                  <div class="row" style="margin-top:10px">
                    <button class="primary small" data-renew="${esc(i.id)}"
-                     data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
-                     data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
+                     data-cost="${esc(i.life?.renewal?.cost || 0)}"
+                     data-days="${esc(i.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
                  </div>
                </div>`
             : ''
@@ -3259,8 +3259,8 @@ async function viewInstance(id) {
                          之后彻底删除。可以积分续期恢复使用，或下载数据卷备份。</div>
                         <div class="row" style="margin-top:10px">
                           <button class="primary small" data-renew="${esc(i.id)}"
-                            data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
-                            data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
+                            data-cost="${esc(i.life?.renewal?.cost || 0)}"
+                            data-days="${esc(i.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
                           <button class="small" data-dl="${esc(i.id)}">${icon('download')}下载数据</button>
                         </div>`
                      : `<div class="sub">宽限期已过，数据已永久删除。删除这条记录即可清理。</div>`
@@ -3491,8 +3491,8 @@ async function viewInstance(id) {
                   : ''
                 : i.status === 'archived' && i.life?.graceRemainingMs != null && i.life.graceRemainingMs > 0
                   ? `<button class="primary small" data-renew="${esc(i.id)}"
-                      data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
-                      data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
+                      data-cost="${esc(i.life?.renewal?.cost || 0)}"
+                      data-days="${esc(i.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>
                      <button class="small" data-dl="${esc(i.id)}">${icon('download')}下载数据</button>`
                     : i.status === 'archived'
                     ? ''
@@ -3504,15 +3504,15 @@ async function viewInstance(id) {
                         ? ''
                         : i.status === 'running'
                     ? `${i.life?.days ? `<button class="primary small" data-renew="${esc(i.id)}"
-                        data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
-                        data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
+                        data-cost="${esc(i.life?.renewal?.cost || 0)}"
+                        data-days="${esc(i.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
                        <button class="small" data-act="stop" data-id="${esc(i.id)}">${icon('square')}停止</button>
                        <button class="small" data-act="restart" data-id="${esc(i.id)}">${icon(
                          'rotate-cw'
                        )}重启</button>`
                     : `${i.life?.days ? `<button class="primary small" data-renew="${esc(i.id)}"
-                        data-cost="${esc(state.cfg?.life?.renewal?.cost || 100)}"
-                        data-days="${esc(state.cfg?.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
+                        data-cost="${esc(i.life?.renewal?.cost || 0)}"
+                        data-days="${esc(i.life?.renewal?.days || 7)}">${icon('rotate-cw')}积分续期</button>` : ''}
                        <button class="small" data-act="start" data-id="${esc(i.id)}">${icon('play')}启动</button>`
             }
            <button class="small danger" data-del="${esc(i.id)}" data-name="${esc(i.name)}" ${

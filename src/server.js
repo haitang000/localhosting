@@ -295,7 +295,7 @@ app.get('/api/config', (_req, res) => {
     life: {
       archiveRetentionDays: config.archiveRetentionDays || null,
       renewal: config.archiveRetentionDays
-        ? { days: config.renewalDays, cost: config.renewalPointsCost }
+        ? { days: config.renewalDays, fallbackCost: config.renewalPointsCost }
         : null,
     },
   });

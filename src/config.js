@@ -188,7 +188,7 @@ export const config = {
   // 超过 N 天后自动彻底删除（容器、数据卷、端口、数据库记录一并清掉）。
   // 设为 0 则跳过自动删除，保持旧行为（只封存，不删除）。
   archiveRetentionDays: num(process.env.ARCHIVE_RETENTION_DAYS, 7),
-  // 积分续期定价：一次续 7 天收多少积分。
+  // 资源券/旧实例的积分续期兜底价；积分实例按创建时实付积分和原有效期折算。
   renewalPointsCost: num(process.env.RENEWAL_POINTS_COST, 100),
   // 续期一次延长的天数（默认 7 天）。
   renewalDays: num(process.env.RENEWAL_DAYS, 7),
