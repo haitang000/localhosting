@@ -20,7 +20,7 @@
   这张券**只能发静态网页**，跑容器还是得单独要
 - **实例资源券**：注册开放不等于资源开放 —— 创建实例 / 发布站点仍要花一张券，
   内存/CPU/端口额度写死在券上
-- **模板库 + 自定义镜像**：51 个开箱即用模板，分 Web / 建站 / 开发 / 数据库 / 工具 / 媒体 / AI / 游戏 八类
+- **模板库 + 自定义镜像**：内置 100+ 个开箱即用模板，分 Web / 建站 / 开发 / 数据库 / 工具 / 媒体 / AI / 游戏 八类
   （Nginx、Caddy、WordPress、Halo、code-server、Jupyter、PostgreSQL、MySQL、Redis、MongoDB、ClickHouse、
   Grafana、Jellyfin、Open WebUI、Minecraft、Factorio 等），可按券或按账号放开任意镜像
 - **端口池自动分配**，一段连续端口整体转发出去就完事
