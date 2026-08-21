@@ -63,12 +63,17 @@ export function findBundle(memoryMb, ticks, diskMb) {
 }
 
 /** 库存还有没有：-1 不限量，>0 有货，0 售罄。 */
-export const stockLeft = (b) => b.stock < 0;
+export const stockLeft = (b) => {
+  const stock = b?.stock ?? -1;
+  return stock < 0 || stock > 0;
+};
 
-/** 扣一份库存（原子操作）；售罄、无限量（-1）或并发下被抢完返回 false。 */
+/** 扣一份库存（原子操作）；无限量（-1）不扣但视为成功，售罄或并发下被抢完返回 false。 */
 export function consumeBundleStock(id) {
   const res = db
-    .prepare('UPDATE bundles SET stock = stock - 1, updated_at = ? WHERE id = ? AND stock > 0')
+    .prepare(
+      'UPDATE bundles SET stock = CASE WHEN stock > 0 THEN stock - 1 ELSE stock END, updated_at = ? WHERE id = ? AND (stock < 0 OR stock > 0)'
+    )
     .run(now(), id);
   return res.changes === 1;
 }

@@ -1,6 +1,6 @@
 import { db, now, audit } from './db.js';
 import { config } from './config.js';
-import { findBundle } from './bundles.js';
+import { findBundle, stockLeft } from './bundles.js';
 
 /**
  * 积分：面板里的通用货币。新用户注册送 WELCOME_POINTS（默认 100），
@@ -69,7 +69,7 @@ export function priceInstanceSpec(spec = {}) {
 
   // 命中的套餐（若有）跟着规格走：时长和库存由套餐决定，建实例时要用。
   const bundle = findBundle(memoryMb, ticks, diskMb);
-  if (bundle && bundle.stock === 0) {
+  if (bundle && !stockLeft(bundle)) {
     throw new Error(`套餐「${bundle.name || `${bundle.memoryMb}MB`}」已售罄，请选择其他套餐`);
   }
   return {
@@ -90,7 +90,7 @@ export function priceInstanceSpec(spec = {}) {
  */
 function memCpuCost(memoryMb, ticks, diskMb) {
   const bundle = findBundle(memoryMb, ticks, diskMb);
-  if (bundle && bundle.stock !== 0) return bundle.cost;
+  if (bundle && stockLeft(bundle)) return bundle.cost;
   return (
     config.instancePointsCost +
     ((memoryMb - config.pointsInstanceMemoryMb) / config.pointsMemStepMb) * config.pointsMemStepCost +

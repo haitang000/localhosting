@@ -2284,6 +2284,11 @@ function viewNew() {
   // 积分路径的价目表来自 /api/config；万一还没加载到，就用和后端同款的默认值。
   const pSpec = () =>
     state.cfg?.points?.instanceSpec ?? { memoryMb: 128, cpus: 0.1, ports: 1, days: 7, diskMb: 2048 };
+  // 库存接口来自 SQLite，统一按数值解释：-1 不限量，正数有货，0 售罄。
+  const bundleHasStock = (b) => {
+    const stock = Number(b?.stock ?? -1);
+    return stock < 0 || stock > 0;
+  };
   const pAdd = () =>
     state.cfg?.points?.addons ?? {
       memStepMb: 128,
@@ -2311,7 +2316,7 @@ function viewNew() {
         x.memoryMb === s.memoryMb &&
         Math.round(x.cpus * 10) === Math.round(s.cpus * 10) &&
         x.diskMb === (s.diskMb ?? pSpec().diskMb) &&
-        x.stock !== 0
+        bundleHasStock(x)
     );
   // 实例时长：命中套餐时用套餐自带的时长（NULL = 跟随全局），否则用全局基础时长。
   const specDays = () => {
@@ -2423,7 +2428,7 @@ function viewNew() {
         (t) =>
           inRange(t) &&
           !bund.some(
-            (x) => x.stock !== 0 && x.memoryMb === t.memoryMb && Math.round(x.cpus * 10) === Math.round(t.cpus * 10)
+            (x) => bundleHasStock(x) && x.memoryMb === t.memoryMb && Math.round(x.cpus * 10) === Math.round(t.cpus * 10)
           )
       ),
       ...bund.filter(inRange).map((x) => ({ ...x, name: x.name || `${x.memoryMb} MB`, bundle: true })),
@@ -2434,7 +2439,7 @@ function viewNew() {
         (t) =>
           t.memoryMb === draft.spec.memoryMb &&
           Math.round(t.cpus * 10) === Math.round(draft.spec.cpus * 10) &&
-          t.stock !== 0
+          bundleHasStock(t)
       );
       draft.planId = hit >= 0 ? String(hit) : '__custom__';
     }
@@ -2450,16 +2455,19 @@ function viewNew() {
       const dd = t.bundle ? (t.days == null ? b.days : t.days) : b.days;
       return dd ? `${dd} 天，到期封存` : '';
     };
-    const stockText = (t) => (t.stock < 0 ? '不限量' : t.stock > 0 ? `剩余 ${t.stock} 份` : '已售罄');
+    const stockText = (t) => {
+      const stock = Number(t?.stock ?? -1);
+      return stock < 0 ? '不限量' : stock > 0 ? `剩余 ${stock} 份` : '已售罄';
+    };
     const planCard = (t, i) => `
-      <div class="card plan ${t.stock === 0 ? 'sold' : ''}" data-plan="${i}"${
-        t.stock === 0 ? ' aria-disabled="true"' : ''
+      <div class="card plan ${bundleHasStock(t) ? '' : 'sold'}" data-plan="${i}"${
+        bundleHasStock(t) ? '' : ' aria-disabled="true"'
       }>
         <span class="tick">${icon('check', { size: '12px' })}</span>
         <div class="plan-head"><span class="plan-name">${t.name}${
           pBundle(t) ? '<span class="plan-tag">直减</span>' : ''
-        }${t.stock === 0 ? '<span class="plan-tag sold">已售罄</span>' : ''}</span>
-          <span class="plan-price">${t.stock === 0 ? '—' : priceTag(t)}</span></div>
+        }${bundleHasStock(t) ? '' : '<span class="plan-tag sold">已售罄</span>'}</span>
+          <span class="plan-price">${bundleHasStock(t) ? priceTag(t) : '—'}</span></div>
         <div class="plan-rows">
           ${row('cpu', 'CPU', `${t.cpus} 核`)}
           ${row('memory-stick', '内存', `${t.memoryMb} MB`)}
@@ -2599,7 +2607,7 @@ function viewNew() {
           draft.spec.diskMb = Number(form.disk.value);
         } else {
           const t = tiers[Number(draft.planId)];
-          if (t && t.stock === 0) return; // 售罄的卡点不动
+          if (t && !bundleHasStock(t)) return; // 售罄的卡点不动
           draft.spec.memoryMb = t.memoryMb;
           draft.spec.cpus = t.cpus;
           draft.spec.diskMb = t.diskMb ?? b.diskMb;
