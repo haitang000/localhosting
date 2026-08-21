@@ -33,6 +33,8 @@ const portRange = (process.env.PORT_POOL || '20000-20200').split('-');
 const dataDir = process.env.DATA_DIR || path.join(ROOT, 'data');
 const requestedLogLevel = String(process.env.LOG_LEVEL || 'info').toLowerCase();
 const logLevel = /^(debug|info|warn|error)$/.test(requestedLogLevel) ? requestedLogLevel : 'info';
+const requestedLogFormat = String(process.env.LOG_FORMAT || 'pretty').toLowerCase();
+const logFormat = /^(pretty|json)$/.test(requestedLogFormat) ? requestedLogFormat : 'pretty';
 
 export const config = {
   // --- Panel ---
@@ -43,6 +45,8 @@ export const config = {
   // debug adds lifecycle and security details; HTTP logging can be disabled in
   // very high traffic deployments, while API requests remain enabled by default.
   logLevel,
+  // pretty is easier to scan locally; json keeps the old machine-readable format.
+  logFormat,
   logHttp: bool(process.env.LOG_HTTP, true),
   logHttpStatic: bool(process.env.LOG_HTTP_STATIC, false),
   sessionTtlDays: num(process.env.SESSION_TTL_DAYS, 14),

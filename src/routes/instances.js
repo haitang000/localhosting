@@ -55,6 +55,14 @@ router.post('/:id/renew', async (req, res) => {
   res.json({ instance: await svc.serialize(fresh) });
 });
 
+/** 重装实例：清掉容器和数据卷，按原配置重建（属主或管理员）。 */
+router.post('/:id/reinstall', async (req, res) => {
+  const row = svc.getInstance(req.params.id, req.user);
+  const fresh = await svc.reinstallInstance(row, req.user);
+  if (row.container_id) statsHistory.delete(row.container_id);
+  res.json({ instance: await svc.serialize(fresh) });
+});
+
 /** 下载封存实例的数据卷。 */
 router.get('/:id/download', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);

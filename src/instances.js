@@ -740,6 +740,8 @@ export async function serialize(row, { withState = true, owner } = {}) {
     dependencies,
     memoryMb: row.memory_mb,
     cpus: row.cpus,
+    // 保留创建时的启动命令，详情页用它展示实例的完整运行配置。
+    command: row.cmd_json ? JSON.parse(row.cmd_json) : null,
     env: JSON.parse(row.env_json),
     // `public` is what the admin actually set up in their tunnel; the computed
     // PUBLIC_HOST:port is only a fallback for when they left it blank.
@@ -994,6 +996,62 @@ export async function renewInstance(row, user, days) {
     }
   }
   return fresh;
+}
+
+/**
+ * 重装实例：删掉容器和数据卷，按原来的配置（镜像 / 环境变量 / 端口 / 资源限额）
+ * 原样重建。数据全部清空；端口预留与对外地址不动，隧道与 DNS 也照旧指向同一批
+ * 主机端口，重建完域名无需重配。失败只置 error 状态、不退款 —— 实例本身还在，
+ * 修好问题再点一次重装即可。
+ */
+export async function reinstallInstance(row, user) {
+  if (row.status === 'pending' || row.status === 'rejected') throw bad('这个实例还没有创建容器，没有可重装的东西');
+  if (row.status === 'creating') throw bad('容器正在创建，等它完成后再操作');
+  if (row.status === 'archived') throw bad('这个实例已封存，续期恢复后才能重装');
+  if (row.status === 'banned') {
+    throw new HttpError(403, '这个实例因违规被封禁，不能重装；如有疑问请联系管理员');
+  }
+
+  term.closeForInstance(row.id, '实例重装');
+  // 休眠 / 停车状态下端口由面板替容器守着，先交还回去，新容器才绑得上。
+  await sleeper.release(row.id);
+  if (row.container_id) {
+    try {
+      await dk.removeContainer(row.container_id);
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+    }
+  }
+  for (const vol of row.volume_name
+    ? dk.volumeNamesFor(row.volume_name, JSON.parse(row.volume_paths_json || '[]'))
+    : []) {
+    await dk.removeVolume(vol).catch(() => {});
+  }
+
+  db.prepare("UPDATE instances SET status = 'creating', container_id = NULL, error = NULL WHERE id = ?").run(row.id);
+  emit(row.id, `${user.username} 发起重装：容器与数据已清除，按原配置重建`, 'log');
+  audit(user, 'instance.reinstall', row.name, null);
+
+  const owner = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+  provision({
+    id: row.id,
+    user: owner,
+    name: row.name,
+    image: row.image,
+    cmd: row.cmd_json ? JSON.parse(row.cmd_json) : null,
+    env: JSON.parse(row.env_json),
+    ports: JSON.parse(row.ports_json),
+    memoryMb: row.memory_mb,
+    cpus: row.cpus,
+    diskMb: row.disk_mb ?? config.diskQuotaMb,
+    volumeName: row.volume_name,
+    volumePaths: row.volume_paths_json ? JSON.parse(row.volume_paths_json) : [],
+  }).catch((err) => {
+    setStatus(row.id, 'error', err.message);
+    emit(row.id, `重装失败：${err.message}`, 'error');
+  });
+
+  return db.prepare('SELECT * FROM instances WHERE id = ?').get(row.id);
 }
 
 /** 下载封存实例的数据卷内容（仅宽限期内可用）。返回 { stream, filename }。 */

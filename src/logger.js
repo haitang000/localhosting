@@ -18,6 +18,29 @@ function serialiseError(err) {
   };
 }
 
+function prettyValue(value) {
+  if (value === null) return 'null';
+  if (typeof value === 'string') {
+    // Keep short, simple values scannable while escaping whitespace/newlines.
+    return /^[\w./:@%+,-]+$/.test(value) ? value : JSON.stringify(value);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '[unserialisable]';
+  }
+}
+
+function prettyLine(payload) {
+  const level = String(payload.level || '').toUpperCase().padEnd(5);
+  const fields = Object.entries(payload)
+    .filter(([key]) => !['ts', 'level', 'event'].includes(key))
+    .map(([key, value]) => `${key}=${prettyValue(value)}`)
+    .join(' ');
+  return `${payload.ts} ${level} ${payload.event}${fields ? `  ${fields}` : ''}`;
+}
+
 function write(level, event, fields = {}) {
   if (LEVELS[level] < LEVELS[configuredLevel()]) return;
   const normalisedFields = fields.error instanceof Error
@@ -30,7 +53,7 @@ function write(level, event, fields = {}) {
     pid: process.pid,
     ...normalisedFields,
   };
-  const output = JSON.stringify(payload);
+  const output = config.logFormat === 'json' ? JSON.stringify(payload) : prettyLine(payload);
   if (level === 'error') console.error(output);
   else if (level === 'warn') console.warn(output);
   else console.log(output);

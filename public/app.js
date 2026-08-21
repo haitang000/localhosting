@@ -2104,7 +2104,7 @@ async function openCheckin() {
   dlg.showModal();
 }
 
-function wireInstanceActions(refresh) {
+function wireInstanceActions(refresh, hooks = {}) {
   app.querySelectorAll('[data-copy]').forEach((el) => (el.onclick = () => copy(el.dataset.copy)));
   app.querySelectorAll('[data-act]').forEach(
     (b) =>
@@ -2171,6 +2171,30 @@ function wireInstanceActions(refresh) {
         }
       })
   );
+  // 重装：删容器和数据卷、按原配置重建。名字当二次确认，和删除一个门槛。
+  app.querySelectorAll('[data-reinstall]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const yes = await askDialog({
+          title: '重装实例',
+          label: '请输入实例名称以确认',
+          ok: '重装',
+          kind: 'danger',
+          hint: `确定重装「${b.dataset.name}」？容器与数据卷会被删除、数据全部清空，然后按当前配置重建，端口和对外地址保持不变。`,
+          match: b.dataset.name,
+        });
+        if (yes !== b.dataset.name) return;
+        b.disabled = true;
+        try {
+          await api(`/instances/${b.dataset.reinstall}/reinstall`, { method: 'POST' });
+          toast('重装已开始，正在重建容器', 'ok');
+          await (hooks.afterReinstall ? hooks.afterReinstall() : refresh());
+        } catch (e) {
+          toast(e.message, 'err');
+          b.disabled = false;
+        }
+      })
+  );
   app.querySelectorAll('[data-renew]').forEach(
     (b) =>
       (b.onclick = async () => {
@@ -2226,6 +2250,32 @@ function envFieldHtml(f, value) {
     <input name="${esc(id)}" type="${f.type === 'password' ? 'password' : 'text'}"
       value="${esc(val)}" placeholder="${f.generate ? '留空则自动生成随机密钥' : ''}" />
     <div class="hint mono">${esc(f.key)}</div></label>`;
+}
+
+// 环境变量属于部署凭据，列表默认只显示掩码；需要时由眼睛按钮临时揭示。
+function maskEnvValue(value) {
+  return value ? '••••••••' : '';
+}
+
+function envValueCell(value, { copy = true } = {}) {
+  const raw = String(value ?? '');
+  return `<span class="mono env-value" data-env-value="${esc(raw)}">${esc(maskEnvValue(raw))}</span>
+    <button class="small ghost icon-only env-toggle" type="button" title="显示值" aria-label="显示环境变量值">${icon('eye')}</button>
+    ${copy ? `<button class="small ghost" data-copy="${esc(raw)}">${icon('copy')}复制</button>` : ''}`;
+}
+
+function wireEnvVisibility() {
+  app.querySelectorAll('.env-toggle').forEach((button) => {
+    button.onclick = () => {
+      const value = button.parentElement?.querySelector('.env-value');
+      if (!value) return;
+      const visible = button.dataset.visible === '1';
+      value.textContent = visible ? maskEnvValue(value.dataset.envValue) : value.dataset.envValue;
+      button.dataset.visible = visible ? '0' : '1';
+      button.title = visible ? '显示值' : '隐藏值';
+      button.setAttribute('aria-label', visible ? '显示环境变量值' : '隐藏环境变量值');
+    };
+  });
 }
 
 function dependencyEnvKeys(t) {
@@ -3264,8 +3314,7 @@ async function viewInstance(id) {
     const envRows = Object.entries(i.env)
       .map(
         ([k, v]) =>
-          `<tr><td class="mono">${esc(k)}</td><td class="mono" style="word-break:break-all">${esc(v)}</td>
-           <td><button class="small ghost" data-copy="${esc(v)}">${icon('copy')}复制</button></td></tr>`
+          `<tr><td class="mono">${esc(k)}</td><td style="word-break:break-all">${envValueCell(v)}</td></tr>`
       )
       .join('');
 
@@ -3400,56 +3449,14 @@ async function viewInstance(id) {
         }
         </div>`
         }
-          ${cat(waiting ? 'scroll-text' : 'activity', waiting ? '申请内容' : '运行状态', { flush: true })}
-          ${waiting ? '' : '<div class="row" style="gap:26px" id="stats"><span class="sub">读取中…</span></div>'}
-          ${waiting ? '' : '<div class="stat-charts" id="stat-charts"></div>'}
-          <div class="kv" style="margin-top:12px">
-            <span>${icon('container')}镜像 <code>${esc(i.image)}</code></span>
-            <span>${icon('memory-stick')}内存上限 ${i.memoryMb} MB</span>
-            <span>${icon('cpu')}CPU ${i.cpus}</span>
-            <span>${icon('hard-drive')}数据卷 <code>${esc(i.volumeName || '无')}</code></span>
-            ${
-              i.disk?.quotaMb
-                ? `<span>${icon('gauge')}磁盘 ${
-                    i.disk.usedBytes != null ? bytes(i.disk.usedBytes) : '?'
-                  } / ${i.disk.quotaMb}MB</span>`
-                : ''
-            }
-            <span>${icon('ticket')}资源券 <code>${esc(i.inviteCode || '—')}</code></span>
-            <span>${icon('calendar')}${waiting ? '申请于' : '创建于'} ${when(i.createdAt)}</span>
-            ${
-              i.life?.expiresAt
-                ? `<span${
-                    expiringSoon(i.life) && i.status !== 'archived' ? ' class="warn"' : ''
-                  }>${icon('hourglass')}有效期至 ${when(i.life.expiresAt)}${
-                    i.status === 'archived' ? '' : `（${lasts(i.life.remainingMs)}）`
-                  }</span>`
-                : i.life?.days
-                  ? `<span>${icon('hourglass')}放行后有效 ${i.life.days} 天</span>`
-                  : `<span>${icon('hourglass')}永久有效</span>`
-            }
-            ${
-              i.reviewedBy
-                ? `<span>${icon('shield')}由 ${esc(i.reviewedBy)} 于 ${when(i.reviewedAt)} 处理</span>`
-                : ''
-            }
-            ${i.state?.startedAt ? `<span>${icon('play')}启动于 ${when(i.state.startedAt)}</span>` : ''}
-            ${i.state?.exitCode ? `<span>${icon('power')}退出码 ${i.state.exitCode}</span>` : ''}
-          </div>
-          ${i.note ? `<div class="hint">${icon('scroll-text')}备注：${esc(i.note)}</div>` : ''}
-        ${
-          Object.keys(i.dependencies || {}).length
-            ? `<div class="card">${cat('link', '关联实例', { flush: true })}
-               <div class="kv">${Object.entries(i.dependencies)
-                 .map(
-                   ([key, d]) =>
-                     `<span>${icon(d.available ? 'check' : 'triangle-alert')}${esc(key)}：${
-                       d.name ? `<b>${esc(d.name)}</b> · ${esc(d.status)}` : '实例已删除或不可用'
-                     }</span>`
-                 )
-                 .join('')}</div></div>`
-            : ''
-        }
+          ${
+            // 实例配置搬到「详情」页签后，等待审批的概览只剩状态卡和申请动态。
+            waiting
+              ? ''
+              : `${cat('activity', '运行状态', { flush: true })}
+          <div class="row" style="gap:26px" id="stats"><span class="sub">读取中…</span></div>
+          <div class="stat-charts" id="stat-charts"></div>`
+          }
          ${!waiting && i.status !== 'archived' && i.status !== 'banned' && i.sleep?.available ? sleepCardHtml(i) : ''}
         <div class="card">
           ${cat('list-checks', waiting ? '申请动态' : '部署进度', { flush: true })}
@@ -3474,6 +3481,93 @@ async function viewInstance(id) {
             ? `<div class="table-wrap"><table class="cards">${envRows}</table></div>`
             : `<div class="empty">这台实例没有环境变量。</div>`
         }
+      </div>`;
+
+    /* 详情页签：实例配置（从概览挪过来）+ 重装 / 删除。 */
+    const canReinstall = !waiting && !creating && !['archived', 'banned'].includes(i.status);
+    const details = `
+      <div class="grid" style="grid-template-columns:1fr;gap:16px">
+        <div class="card">
+          ${cat('settings', waiting ? '申请内容' : '实例配置', { flush: true })}
+          <div class="kv">
+            <span>${icon('container')}镜像 <code>${esc(i.image)}</code></span>
+            ${
+              Array.isArray(i.command) && i.command.length
+                ? `<span>${icon('terminal')}启动命令 <code class="mono">${esc(i.command.join(' '))}</code></span>`
+                : ''
+            }
+            <span>${icon('memory-stick')}内存上限 ${i.memoryMb} MB</span>
+            <span>${icon('cpu')}CPU ${i.cpus}</span>
+            <span>${icon('hard-drive')}数据卷 <code>${esc(i.volumeName || '无')}</code></span>
+            ${
+              i.volumePaths?.length
+                ? `<span>${icon('folder-open')}挂载路径 <code class="mono">${esc(i.volumePaths.join('、'))}</code></span>`
+                : ''
+            }
+            ${
+              i.disk?.quotaMb
+                ? `<span>${icon('gauge')}磁盘 ${
+                    i.disk.usedBytes != null ? bytes(i.disk.usedBytes) : '?'
+                  } / ${i.disk.quotaMb}MB</span>`
+                : ''
+            }
+            <span>${icon('ticket')}资源券 <code>${esc(i.inviteCode || '—')}</code></span>
+            ${
+              i.ports?.length
+                ? `<span>${icon('plug')}端口映射 <code class="mono">${esc(
+                    i.ports.map((p) => `${p.container}/${p.protocol} ← ${p.host}`).join('、')
+                  )}</code></span>`
+                : ''
+            }
+            <span>${icon('calendar')}${waiting ? '申请于' : '创建于'} ${when(i.createdAt)}</span>
+            ${
+              i.life?.expiresAt
+                ? `<span${
+                    expiringSoon(i.life) && i.status !== 'archived' ? ' class="warn"' : ''
+                  }>${icon('hourglass')}有效期至 ${when(i.life.expiresAt)}${
+                    i.status === 'archived' ? '' : `（${lasts(i.life.remainingMs)}）`
+                  }</span>`
+                : i.life?.days
+                  ? `<span>${icon('hourglass')}放行后有效 ${i.life.days} 天</span>`
+                  : `<span>${icon('hourglass')}永久有效</span>`
+            }
+            ${
+              i.reviewedBy
+                ? `<span>${icon('shield')}由 ${esc(i.reviewedBy)} 于 ${when(i.reviewedAt)} 处理</span>`
+                : ''
+            }
+            ${i.state?.startedAt ? `<span>${icon('play')}启动于 ${when(i.state.startedAt)}</span>` : ''}
+            ${i.state?.exitCode ? `<span>${icon('power')}退出码 ${i.state.exitCode}</span>` : ''}
+          </div>
+          ${i.note ? `<div class="hint">${icon('scroll-text')}备注：${esc(i.note)}</div>` : ''}
+        </div>
+        ${
+          Object.keys(i.dependencies || {}).length
+            ? `<div class="card">${cat('link', '关联实例', { flush: true })}
+               <div class="kv">${Object.entries(i.dependencies)
+                 .map(
+                   ([key, d]) =>
+                     `<span>${icon(d.available ? 'check' : 'triangle-alert')}${esc(key)}：${
+                       d.name ? `<b>${esc(d.name)}</b> · ${esc(d.status)}` : '实例已删除或不可用'
+                     }</span>`
+                 )
+                 .join('')}</div></div>`
+            : ''
+        }
+        <div class="card" style="box-shadow:var(--shadow-sm),0 0 0 2px var(--danger)">
+          ${cat('triangle-alert', '危险操作', { flush: true })}
+          <div class="sub" style="margin-bottom:12px">重装会清掉容器与数据卷，再按上面的配置原样重建：端口、对外地址、有效期都保持不变，但数据会全部丢失。删除则连实例记录一起清掉。两者都不可恢复，请确认后再操作。</div>
+          <div class="row">
+            ${
+              canReinstall
+                ? `<button class="danger" data-reinstall="${esc(i.id)}" data-name="${esc(i.name)}">${icon('wrench')}重装实例</button>`
+                : ''
+            }
+            <button class="danger" data-del="${esc(i.id)}" data-name="${esc(i.name)}" ${
+              i.status === 'pending' ? 'data-pending="1"' : ''
+            }>${i.status === 'pending' ? `${icon('undo-2')}撤回申请` : `${icon('trash-2')}删除实例`}</button>
+          </div>
+        </div>
       </div>`;
 
     /* 容器没在跑的时候，控制台是一块什么都做不了的黑框：接不上、也不会说为什么。
@@ -3646,6 +3740,7 @@ async function viewInstance(id) {
                     : ''
                 }`
          }
+         <button data-tab="details" class="${tab === 'details' ? 'on' : ''}">${icon('info')}详情</button>
        </div>
        ${
          tab === 'overview'
@@ -3656,7 +3751,9 @@ async function viewInstance(id) {
              ? logs
              : tab === 'files'
                ? filesTabHtml(i)
-               : consoleTab
+               : tab === 'details'
+                 ? details
+                 : consoleTab
        }`
     );
 
@@ -3669,7 +3766,15 @@ async function viewInstance(id) {
         })
     );
     revealActive('.tabbar', 'button.on');
-    wireInstanceActions(paint);
+    wireInstanceActions(paint, {
+      // 重装在详情页发起，但创建过程要回概览看创建日志。
+      afterReinstall: async () => {
+        tab = 'overview';
+        clearTimers();
+        await paint();
+      },
+    });
+    wireEnvVisibility();
 
     if (tab === 'overview' && (waiting || creating)) {
       hookEvents(i.id);
@@ -3916,10 +4021,23 @@ async function viewInstance(id) {
 
     if (tab === 'logs') {
       const box = document.getElementById('logbox');
+      const normalizeLogText = (value) => String(value ?? '').replace(/\r\n?/g, '\n');
+      let streamTail = '';
+      const appendLogChunk = (value) => {
+        const chunk = normalizeLogText(value);
+        if (!chunk) return;
+        if (box.textContent && !box.textContent.endsWith('\n') && !streamTail) box.textContent += '\n';
+        streamTail += chunk;
+        const complete = streamTail.lastIndexOf('\n');
+        if (complete < 0) return;
+        box.textContent += streamTail.slice(0, complete + 1);
+        streamTail = streamTail.slice(complete + 1);
+      };
       const load = async () => {
         try {
           const { logs: text } = await api(`/instances/${i.id}/logs?tail=400`);
-          box.textContent = text || '(暂无日志)';
+          streamTail = '';
+          box.textContent = text ? normalizeLogText(text) : '(暂无日志)';
           box.scrollTop = box.scrollHeight;
         } catch (e) {
           box.textContent = e.message;
@@ -3931,7 +4049,7 @@ async function viewInstance(id) {
         if (e.target.checked) {
           const es = new EventSource(`/api/instances/${i.id}/logs/stream`);
           es.onmessage = (m) => {
-            box.textContent += JSON.parse(m.data).line;
+            appendLogChunk(JSON.parse(m.data).line);
             box.scrollTop = box.scrollHeight;
           };
           es.onerror = () => es.close();
@@ -6262,7 +6380,7 @@ function wireSiteActions(refresh) {
 /* ---------------- admin ---------------- */
 function pendingCard(i) {
   const envRows = Object.entries(i.env)
-    .map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono" style="word-break:break-all">${esc(v)}</td></tr>`)
+    .map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td style="word-break:break-all">${envValueCell(v, { copy: false })}</td></tr>`)
     .join('');
   const portRows = i.ports.length
     ? i.ports
@@ -6935,6 +7053,7 @@ async function viewAdmin() {
     );
     app.querySelectorAll('[data-copy]').forEach((el) => (el.onclick = () => copy(el.dataset.copy)));
     wireInstanceActions(paint);
+    wireEnvVisibility();
     wireAdmin(paint);
   };
 

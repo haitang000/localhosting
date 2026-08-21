@@ -1616,9 +1616,14 @@ pre.logs {
   overflow: auto;
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
   font-size: 12.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
+  line-height: 1.55;
+  /* Keep each log line intact so timestamps, stack traces and URLs remain
+     readable. The pane scrolls horizontally for genuinely long lines. */
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 2;
   margin: 0;
   color: var(--foreground);
 }
@@ -4093,7 +4098,7 @@ dialog.terms .terms-doc {
   pre.logs,
   pre.term {
     word-break: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
   }
   pre.logs {
     max-height: min(52dvh, 460px);
