@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import express, { Router } from 'express';
 import { db, now, audit } from '../db.js';
-import { requireAdmin, publicUser, hashPassword } from '../auth.js';
+import { requireAdmin, publicUser, hashPassword, passwordProblem } from '../auth.js';
 import { config } from '../config.js';
 import * as dk from '../docker.js';
 import * as svc from '../instances.js';
@@ -96,7 +96,8 @@ router.patch('/users/:id', (req, res) => {
     db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).run(val, id);
   }
   if (b.newPassword) {
-    if (String(b.newPassword).length < 8) return res.status(400).json({ error: '密码至少 8 位' });
+    const passwordError = passwordProblem(String(b.newPassword), user.username);
+    if (passwordError) return res.status(400).json({ error: passwordError });
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(b.newPassword)), id);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
   }

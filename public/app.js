@@ -944,10 +944,10 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
          mode !== 'register'
            ? ''
            : open
-            ? '<div class="hint">密码至少 8 位；用户名 3-32 位字母/数字/下划线/连字符。</div>'
+            ? `<div class="hint">新密码至少 ${state.cfg?.passwordMinLength ?? 8} 位，且不能包含用户名；用户名 3-32 位字母/数字/下划线/连字符。</div>`
             : `<label class="field"><span>${icon('ticket')}邀请码</span>
              <input name="inviteCode" required autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="向管理员索取" />
-             <div class="hint">密码至少 8 位；用户名 3-32 位字母/数字/下划线/连字符。</div></label>`
+              <div class="hint">新密码至少 ${state.cfg?.passwordMinLength ?? 8} 位，且不能包含用户名；用户名 3-32 位字母/数字/下划线/连字符。</div></label>`
       }
       ${
         state.cfg?.terms && state.cfg?.privacy
@@ -5919,15 +5919,20 @@ function viewAccount() {
          ${cat('ticket', '面板送我的券', { flush: true })}
          <div class="sub">${loader({ inline: true })}</div>
        </div>
-       <form class="card" id="pw-form">
+        <form class="card" id="pw-form">
          ${cat('key-round', '修改密码', { flush: true })}
          <label class="field"><span>${icon('lock-keyhole')}当前密码</span>
            <input type="password" name="currentPassword" required /></label>
          <label class="field"><span>${icon('key-round')}新密码</span>
-           <input type="password" name="newPassword" required minlength="8" /></label>
+           <input type="password" name="newPassword" required minlength="${state.cfg?.passwordMinLength ?? 8}" autocomplete="new-password" /></label>
+         <div class="hint">至少 ${state.cfg?.passwordMinLength ?? 8} 位，且不能包含用户名；长密码短语和密码管理器生成的密码都可以。</div>
          <div class="err" data-err></div>
          <button class="primary" type="submit">${icon('save')}保存</button>
        </form>
+       <div class="card" id="my-sessions">
+         ${cat('shield-check', '登录设备', { flush: true })}
+         <div class="sub">${loader({ inline: true })}</div>
+       </div>
      </div>`
   );
   // 老券在这里永远找得回来 —— 现在的见面礼是积分，但发出去的券照旧能用。
@@ -6026,6 +6031,47 @@ function viewAccount() {
       errEl.textContent = err.message;
     }
   };
+
+  api('/auth/sessions')
+    .then(({ sessions }) => {
+      const box = document.getElementById('my-sessions');
+      if (!box) return;
+      box.innerHTML = `${cat('shield-check', '登录设备', { flush: true })}
+        <div class="table-wrap"><table class="cards">
+          ${sessions
+            .map(
+              (s) => `<tr>
+                <td><b>${esc(s.device)}</b>${s.current ? ` <span class="badge ok">${icon('circle-check')}当前设备</span>` : ''}</td>
+                <td class="sub">${s.ipHint ? `网络 ${esc(s.ipHint)} · ` : ''}${when(s.createdAt)}</td>
+                <td class="sub">到期 ${when(s.expiresAt)}</td>
+              </tr>`
+            )
+            .join('')}
+        </table></div>
+        <form class="row" id="revoke-sessions-form" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+          <input name="currentPassword" type="password" required autocomplete="current-password" placeholder="输入当前密码确认" style="flex:1;min-width:190px" />
+          <button class="small danger" type="submit">${icon('log-out')}退出其他设备</button>
+          <div class="err" data-err></div>
+        </form>
+        <div class="hint">只保留这台设备。设备名称和网络段由浏览器请求自动归类，完整 IP 不会保存。</div>`;
+      const revokeForm = document.getElementById('revoke-sessions-form');
+      revokeForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const errEl = revokeForm.querySelector('[data-err]');
+        errEl.textContent = '';
+        try {
+          const { revoked } = await api('/auth/sessions/revoke-others', {
+            method: 'POST',
+            body: Object.fromEntries(new FormData(revokeForm)),
+          });
+          toast(revoked ? `已退出 ${revoked} 台其他设备` : '没有其它登录设备', 'ok');
+          viewAccount();
+        } catch (err) {
+          errEl.textContent = err.message;
+        }
+      };
+    })
+    .catch(() => {});
 }
 
 /* ---------------- static sites (drag & drop) ---------------- */
@@ -7584,7 +7630,7 @@ function wireAdmin(refresh) {
             <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>管理员</option>
           </select></label>
           <label class="field"><span>${icon('key-round')}重置密码（留空不改）</span>
-            <input name="newPassword" type="text" placeholder="至少 8 位" /></label>
+            <input name="newPassword" type="password" placeholder="至少 ${state.cfg?.passwordMinLength ?? 8} 位" autocomplete="new-password" /></label>
           <div class="row" style="margin-bottom:14px">
             <label class="row" style="gap:6px"><span class="switch"><input type="checkbox" name="allowCustomImage" ${
               u.quota.allowCustomImage ? 'checked' : ''

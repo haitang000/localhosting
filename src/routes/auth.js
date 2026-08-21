@@ -10,6 +10,7 @@ import {
   setSessionCookie,
   verifyPassword,
   hashPassword,
+  passwordProblem,
   USERNAME_RE,
 } from '../auth.js';
 import { usage } from '../instances.js';
@@ -151,7 +152,8 @@ router.post('/register', async (req, res, next) => {
     const agreement = agreementProblem(req.body);
     if (agreement) return res.status(400).json({ error: agreement });
     if (!USERNAME_RE.test(username)) return res.status(400).json({ error: '用户名需为 3-32 位字母、数字、下划线或连字符' });
-    if (password.length < 8) return res.status(400).json({ error: '密码至少 8 位' });
+    const passwordError = passwordProblem(password, username);
+    if (passwordError) return res.status(400).json({ error: passwordError });
 
     if (!verifyTurnstile(req.body.turnstile_token, req.ip)) {
       fail(`reg:${req.ip}`);
@@ -195,7 +197,7 @@ router.post('/register', async (req, res, next) => {
     // 见面礼：一笔积分，发站点、开基础实例都能花，不用找管理员要券。
     const welcomePoints = grantWelcomePoints(user);
 
-    const { token, expires } = createSession(user.id);
+    const { token, expires } = createSession(user.id, req);
     setSessionCookie(res, token, expires);
     res.json({ user: publicUser(user), welcomePoints: welcomePoints || null });
   } catch (err) {
@@ -232,7 +234,7 @@ router.post('/login', async (req, res, next) => {
     clear(key);
     logger.info('auth.login.success', { requestId: req.requestId, userId: user.id, username: user.username, ip: req.ip });
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(now(), user.id);
-    const { token, expires } = createSession(user.id);
+    const { token, expires } = createSession(user.id, req);
     setSessionCookie(res, token, expires);
     audit(user, 'user.login', username, null);
     // 注册那边也是「主事件在前、agree_terms 紧随其后」，日志里两条流程的顺序得一致。
@@ -285,6 +287,33 @@ router.get('/points', requireAuth, (req, res) => {
   res.json({ points: req.user.points ?? 0, txns: txnsFor(req.user.id) });
 });
 
+/** Active sessions belong to the account owner only; raw tokens are never returned. */
+router.get('/sessions', requireAuth, (req, res) => {
+  const sessions = db
+    .prepare(
+      `SELECT token, device_label, ip_hint, created_at, expires_at
+       FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC`
+    )
+    .all(req.user.id, now())
+    .map((row) => ({
+      current: row.token === req.sessionToken,
+      device: row.device_label || '未知设备（旧会话）',
+      ipHint: row.ip_hint || '',
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+    }));
+  res.json({ sessions });
+});
+
+/** Revoke every other device after a password confirmation, keeping this browser signed in. */
+router.post('/sessions/revoke-others', requireAuth, (req, res) => {
+  const current = String(req.body?.currentPassword || '');
+  if (!verifyPassword(current, req.user.password_hash)) return res.status(400).json({ error: '当前密码不正确' });
+  const result = db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, req.sessionToken);
+  audit(req.user, 'user.sessions_revoke_others', req.user.username, `count=${result.changes}`);
+  res.json({ revoked: result.changes });
+});
+
 /** 积分兑换码：换成积分入账。多次数的码每人也只能兑一次。 */
 router.post('/redeem', requireAuth, (req, res) => {
   const code = String(req.body.code || '').trim();
@@ -328,9 +357,14 @@ router.post('/password', requireAuth, (req, res) => {
   const current = String(req.body.currentPassword || '');
   const next = String(req.body.newPassword || '');
   if (!verifyPassword(current, req.user.password_hash)) return res.status(400).json({ error: '当前密码不正确' });
-  if (next.length < 8) return res.status(400).json({ error: '新密码至少 8 位' });
+  const passwordError = passwordProblem(next, req.user.username);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), req.user.id);
-  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, req.sessionToken);
+  // Rotate the surviving session as well: a cookie copied before the change
+  // cannot remain useful, while the browser making this request stays signed in.
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(req.user.id);
+  const { token, expires } = createSession(req.user.id, req);
+  setSessionCookie(res, token, expires);
   audit(req.user, 'user.password_change', req.user.username, null);
   res.json({ ok: true });
 });

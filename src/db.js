@@ -49,10 +49,14 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-  token      TEXT PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
+  token        TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Only a short, server-derived device label and a masked network hint are
+  -- retained. This makes sessions recognisable without storing a full UA/IP.
+  device_label TEXT NOT NULL DEFAULT '',
+  ip_hint      TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS instances (
@@ -267,6 +271,10 @@ addColumn('bundles', 'days', 'INTEGER');
 addColumn('bundles', 'stock', 'INTEGER NOT NULL DEFAULT -1');
 // 自动穿透：Cloudflare Tunnel 记录（tunnelId / hostnames / 凭据文件路径 / pid）
 addColumn('instances', 'tunnel_json', 'TEXT');
+// Existing installations receive session-management metadata without invalidating
+// their active sessions. Old rows simply appear as an unknown device.
+addColumn('sessions', 'device_label', "TEXT NOT NULL DEFAULT ''");
+addColumn('sessions', 'ip_hint', "TEXT NOT NULL DEFAULT ''");
 
 export const now = () => new Date().toISOString();
 

@@ -232,6 +232,7 @@ app.get('/api/config', (_req, res) => {
     // 站点地址只能显示本机地址。
     panel: { baseUrl: panelBaseUrl(), addressUnset: panelAddressUnset() },
     openRegistration: config.openRegistration,
+    passwordMinLength: config.passwordMinLength,
     // 登录/注册表单是否要同时勾选《用户协议》和《隐私政策》。null = 关闭门槛。
     terms: config.termsRequired ? { version: TERMS_VERSION, updated: TERMS_UPDATED } : null,
     privacy: config.termsRequired ? { version: PRIVACY_VERSION, updated: PRIVACY_UPDATED } : null,

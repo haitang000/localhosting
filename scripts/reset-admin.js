@@ -3,7 +3,7 @@
  * 不带参数则列出所有用户。
  */
 import { db } from '../src/db.js';
-import { hashPassword } from '../src/auth.js';
+import { hashPassword, passwordProblem } from '../src/auth.js';
 
 const [username, password] = process.argv.slice(2);
 
@@ -14,14 +14,15 @@ if (!username) {
   process.exit(0);
 }
 
-if (!password || password.length < 8) {
-  console.error('新密码至少 8 位');
-  process.exit(1);
-}
-
 const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
 if (!user) {
   console.error(`用户 ${username} 不存在`);
+  process.exit(1);
+}
+
+const problem = passwordProblem(password, user.username);
+if (problem) {
+  console.error(problem);
   process.exit(1);
 }
 

@@ -30,16 +30,65 @@ export function newToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-export function createSession(userId) {
+function deviceLabel(userAgent = '') {
+  const ua = String(userAgent);
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\//.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : '未知浏览器';
+  const platform = /Windows NT/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad|iPod/.test(ua)
+        ? 'iOS'
+        : /Mac OS X/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : '未知设备';
+  return `${browser} · ${platform}`;
+}
+
+/** Keeps enough of an address to recognise a login, without storing the full IP. */
+function maskedIp(ip = '') {
+  const value = String(ip).replace(/^::ffff:/, '');
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) return `${value.split('.').slice(0, 2).join('.')}.*.*`;
+  const parts = value.split(':').filter(Boolean);
+  return parts.length ? `${parts.slice(0, 3).join(':')}:*` : '';
+}
+
+export function createSession(userId, req) {
   const token = newToken();
   const expires = new Date(Date.now() + config.sessionTtlDays * 86400_000);
-  db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
+  db.prepare(
+    'INSERT INTO sessions (token, user_id, device_label, ip_hint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(
     token,
     userId,
+    deviceLabel(req?.headers?.['user-agent']),
+    maskedIp(req?.ip),
     now(),
     expires.toISOString()
   );
   return { token, expires };
+}
+
+/** Password policy shared by self-service changes, registration, and admin actions. */
+export function passwordProblem(password, username = '') {
+  const value = String(password);
+  if (value.length < config.passwordMinLength) return `密码至少 ${config.passwordMinLength} 位`;
+  if (value.length > 1024) return '密码过长（最多 1024 位）';
+  const name = String(username).trim().toLowerCase();
+  if (name.length >= 3 && value.toLowerCase().includes(name)) return '密码不能包含用户名';
+  return null;
 }
 
 export function destroySession(token) {

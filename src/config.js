@@ -50,6 +50,9 @@ export const config = {
   logHttp: bool(process.env.LOG_HTTP, true),
   logHttpStatic: bool(process.env.LOG_HTTP_STATIC, false),
   sessionTtlDays: num(process.env.SESSION_TTL_DAYS, 14),
+  // New passwords use a modest length floor rather than brittle composition
+  // rules. Long passphrases and password-manager generated passwords both work.
+  passwordMinLength: Math.max(8, Math.min(128, num(process.env.PASSWORD_MIN_LENGTH, 8))),
   trustProxy: bool(process.env.TRUST_PROXY, false),
   // 面板品牌名（登录页、顶栏、浏览器标题）；只作 settings 表的播种值，
   // 之后在管理后台 → 总览里改，改完立即生效。
