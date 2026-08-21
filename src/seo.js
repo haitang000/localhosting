@@ -93,6 +93,7 @@ export function robotsTxt(baseUrl) {
   return `User-agent: *
 Allow: /$
 Allow: /terms$
+Allow: /privacy$
 Allow: /s/
 Disallow: /api/
 Disallow: /404

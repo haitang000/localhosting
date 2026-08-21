@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>隐私政策 · localhosting</title>
+    <meta name="description" content="localhosting 隐私政策：说明账号、实例、站点、Cookie 和运行日志的处理方式。" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="terms-page">
+      <h1>隐私政策</h1>
+      <div class="terms-meta" id="meta"></div>
+      <div class="terms-doc" id="doc">正在加载…</div>
+      <a class="back" href="/">← 返回面板</a>
+    </div>
+    <script type="module">
+      const doc = document.getElementById('doc');
+      try {
+        const res = await fetch('/api/privacy');
+        if (!res.ok) throw new Error(`请求失败 (${res.status})`);
+        const p = await res.json();
+        document.getElementById('meta').textContent = `版本 ${p.version} · 更新于 ${p.updated}`;
+        doc.innerHTML = p.html;
+      } catch (err) {
+        doc.textContent = `隐私政策加载失败：${err.message}。请刷新重试。`;
+      }
+    </script>
+  </body>
+</html>

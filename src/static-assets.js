@@ -23,6 +23,7 @@ const MIME = {
 const FILES = [
   '404.html',
   'terms.html',
+  'privacy.html',
   'app.js',
   'editor.js',
   'icons.js',

@@ -20,6 +20,7 @@ import * as guard from './guard.js';
 import * as cftunnel from './cftunnel.js';
 import { sweepOrphanDirs } from './sites.js';
 import { TERMS_VERSION, TERMS_UPDATED, TERMS_HTML } from './terms.js';
+import { PRIVACY_VERSION, PRIVACY_UPDATED, PRIVACY_HTML } from './privacy.js';
 import * as announcements from './announcements.js';
 import { router as authRoutes } from './routes/auth.js';
 import { router as instanceRoutes } from './routes/instances.js';
@@ -72,19 +73,22 @@ app.use('/api', (req, res, next) => {
    即不走 cloudflared 隧道的直接访问）也放行，方便在机器上调试。
    放行清单是「渲染维护页 / 登录页要用的静态资源」+
    「管理员被关在外面之后的退路」：/api/auth/*（登录、验证码、me）和
-   /api/config、/api/health、/terms。其余页面（/、/s/、robots、sitemap）
+   /api/config、/api/health、/terms、/privacy。其余页面（/、/s/、robots、sitemap）
    和 API 一律 503 —— 非管理员拿维护页，管理员凭会话照常使用面板。 */
 const MAINT_OPEN_EXACT = [
   '/api/config',
   '/api/health',
   '/api/terms',
+  '/api/privacy',
   '/api/auth/me',
   '/api/auth/login',
   '/api/auth/pow',
   '/api/auth/turnstile',
   '/api/auth/captcha',
   '/terms',
+  '/privacy',
   '/terms.html',
+  '/privacy.html',
   '/style.css',
   '/landing.css',
   '/landing-hero.js',
@@ -313,6 +317,11 @@ app.get('/api/terms', (_req, res) => {
   res.json({ version: TERMS_VERSION, updated: TERMS_UPDATED, html: TERMS_HTML, required: config.termsRequired });
 });
 
+// 《隐私政策》正文。独立页和未来需要嵌入的界面都从这里取，正文只有一份。
+app.get('/api/privacy', (_req, res) => {
+  res.json({ version: PRIVACY_VERSION, updated: PRIVACY_UPDATED, html: PRIVACY_HTML });
+});
+
 app.get('/api/announcements', (_req, res) => {
   res.json({ announcements: announcements.listActive() });
 });
@@ -385,7 +394,7 @@ app.get('/sitemap.xml', (_req, res) => {
   const slugs = config.sitesEnabled
     ? db.prepare('SELECT slug FROM sites ORDER BY updated_at DESC').all().map((r) => r.slug)
     : [];
-  const urls = [panelBaseUrl() + '/', panelBaseUrl() + '/terms'];
+  const urls = [panelBaseUrl() + '/', panelBaseUrl() + '/terms', panelBaseUrl() + '/privacy'];
   for (const slug of slugs) urls.push(siteAddress(slug));
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/xml');

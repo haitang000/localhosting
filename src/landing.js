@@ -346,6 +346,7 @@ export function renderLanding({
         <span><b>${esc(name)}</b> · 自托管容器面板</span>
         <nav aria-label="页脚">
           <a href="/terms">用户协议</a>
+          <a href="/privacy">隐私政策</a>
           <a href="/login">登录 / 注册</a>
         </nav>
         <span class="ld-power">Powered by localhosting</span>
