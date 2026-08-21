@@ -79,9 +79,9 @@ export const config = {
   // Successful sign-ups allowed per IP per hour (failed attempts are handled
   // separately by the exponential backoff in the auth routes).
   registerPerIpPerHour: num(process.env.REGISTER_IP_PER_HOUR, 3),
-  // Require ticking "I agree to the user agreement" on both sign-up and sign-in.
-  // The text itself lives in src/terms.js; bump TERMS_VERSION there after
-  // editing it and everyone re-consents on their next login.
+  // Require ticking agreement to both the user agreement and privacy policy
+  // on sign-up and sign-in. Bump either document's version after editing it;
+  // users re-consent on their next login.
   termsRequired: bool(process.env.TERMS_REQUIRED, true),
 
   // --- 验证码（注册/登录/签到共用，全部自研，零外部依赖） ---

@@ -19,6 +19,7 @@ import { publicOnboarding, updateOnboarding, markVoucherSeen } from '../onboardi
 import { createPow, verifyPow, createTurnstile, mintToken, verifyTurnstile, verifyChallenge } from '../captcha.js';
 import { config } from '../config.js';
 import { TERMS_VERSION } from '../terms.js';
+import { PRIVACY_VERSION } from '../privacy.js';
 import * as announcements from '../announcements.js';
 import { logger } from '../logger.js';
 
@@ -45,29 +46,35 @@ function fail(key) {
 const clear = (key) => attempts.delete(key);
 
 /**
- * 注册和登录共用的《用户协议》门槛。前端把当前展示的协议版本随表单提交，
- * 版本对得上才放行——正文改了但页面还开着的旧标签，会被要求刷新重读，
- * 而不是替用户同意一份没看过的协议。返回错误文案，null 表示通过。
+ * 注册和登录共用的《用户协议》与《隐私政策》门槛。前端把当前展示的两个
+ * 文档版本随表单提交，版本对得上才放行——正文改了但页面还开着的旧标签，
+ * 会被要求刷新重读，而不是替用户同意一份没看过的文档。
  */
-function termsProblem(body) {
+function agreementProblem(body) {
   if (!config.termsRequired) return null;
-  const agreed = String(body.termsVersion || '');
+  const agreedTerms = String(body.termsVersion || '');
+  const agreedPrivacy = String(body.privacyVersion || '');
   // 「页面上没有勾选框」是真会发生的：管理员刚把 TERMS_REQUIRED 从 false 拨到 true，
   // 而这张表单是拨之前渲染的。所以这条也得给出路，不然人对着一条没法照做的错误干瞪眼。
-  if (!agreed) return '请先阅读并勾选同意《用户协议》；如果页面上没有这个勾选框，请刷新页面后再试';
-  if (agreed !== TERMS_VERSION) return '《用户协议》已更新，请刷新页面重新阅读后再试';
+  if (!agreedTerms || !agreedPrivacy)
+    return '请先阅读并勾选同意《用户协议》和《隐私政策》；如果页面上没有这个勾选框，请刷新页面后再试';
+  if (agreedTerms !== TERMS_VERSION) return '《用户协议》已更新，请刷新页面重新阅读后再试';
+  if (agreedPrivacy !== PRIVACY_VERSION) return '《隐私政策》已更新，请刷新页面重新阅读后再试';
   return null;
 }
 
 /** 把这次同意记到账上：users 表存最新版本，audit_log 留完整历史。 */
 function recordAgreement(user) {
-  if (!config.termsRequired || user.terms_agreed_version === TERMS_VERSION) return;
-  db.prepare('UPDATE users SET terms_agreed_version = ?, terms_agreed_at = ? WHERE id = ?').run(
-    TERMS_VERSION,
-    now(),
-    user.id
-  );
-  audit(user, 'user.agree_terms', user.username, `version=${TERMS_VERSION}`);
+  if (!config.termsRequired) return;
+  const at = now();
+  const termsChanged = user.terms_agreed_version !== TERMS_VERSION;
+  const privacyChanged = user.privacy_agreed_version !== PRIVACY_VERSION;
+  if (!termsChanged && !privacyChanged) return;
+  db.prepare(
+    'UPDATE users SET terms_agreed_version = ?, terms_agreed_at = ?, privacy_agreed_version = ?, privacy_agreed_at = ? WHERE id = ?'
+  ).run(TERMS_VERSION, at, PRIVACY_VERSION, at, user.id);
+  if (termsChanged) audit(user, 'user.agree_terms', user.username, `version=${TERMS_VERSION}`);
+  if (privacyChanged) audit(user, 'user.agree_privacy', user.username, `version=${PRIVACY_VERSION}`);
 }
 
 // --- sliding windows (per IP) for the open-registration endpoints ---
@@ -141,8 +148,8 @@ router.post('/register', async (req, res, next) => {
     const password = String(req.body.password || '');
 
     throttle(`reg:${req.ip}`);
-    const terms = termsProblem(req.body);
-    if (terms) return res.status(400).json({ error: terms });
+    const agreement = agreementProblem(req.body);
+    if (agreement) return res.status(400).json({ error: agreement });
     if (!USERNAME_RE.test(username)) return res.status(400).json({ error: '用户名需为 3-32 位字母、数字、下划线或连字符' });
     if (password.length < 8) return res.status(400).json({ error: '密码至少 8 位' });
 
@@ -203,8 +210,8 @@ router.post('/login', async (req, res, next) => {
     const password = String(req.body.password || '');
     const key = `login:${req.ip}:${username.toLowerCase()}`;
     throttle(key);
-    const terms = termsProblem(req.body);
-    if (terms) return res.status(400).json({ error: terms });
+    const agreement = agreementProblem(req.body);
+    if (agreement) return res.status(400).json({ error: agreement });
     if (!verifyTurnstile(req.body.turnstile_token, req.ip)) {
       fail(key);
       return res.status(400).json({ error: '验证未通过，请刷新页面重试' });

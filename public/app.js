@@ -301,11 +301,12 @@ function dotMark(label = 'localhosting', { assemble = false } = {}) {
           </svg>`;
 }
 
-/* ---------------- user agreement ----------------
+/* ---------------- agreements ----------------
    The text itself lives on the server (src/terms.js) and arrives via
-   /api/terms; this dialog and the standalone /terms page render the same
-   HTML, so there is exactly one copy to keep honest. */
+   /api/terms; the privacy document follows the same pattern at /api/privacy.
+   The standalone pages and these dialogs therefore always render one source. */
 let termsCache = null;
+let privacyCache = null;
 async function showTerms({ onAgree } = {}) {
   document.getElementById('terms-dlg')?.remove();
   const dlg = document.createElement('dialog');
@@ -353,6 +354,48 @@ async function showTerms({ onAgree } = {}) {
     if (dlg.isConnected)
       dlg.querySelector('.terms-doc').innerHTML =
         `<p class="err">${icon('circle-alert')}协议加载失败：${esc(err.message)}</p>`;
+  }
+}
+
+async function showPrivacy({ onAgree } = {}) {
+  document.getElementById('privacy-dlg')?.remove();
+  const dlg = document.createElement('dialog');
+  dlg.id = 'privacy-dlg';
+  dlg.className = 'terms';
+  dlg.setAttribute('aria-labelledby', 'privacy-title');
+  dlg.innerHTML = `
+    <h3 id="privacy-title">${icon('shield')}隐私政策</h3>
+    <div class="terms-meta"></div>
+    <div class="terms-doc" tabindex="0" role="region" aria-label="隐私政策正文">${loader()}</div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="ghost" data-close>关闭</button>
+      ${onAgree ? `<button class="primary" data-agree disabled>${icon('check')}我已阅读并同意</button>` : ''}
+    </div>`;
+  document.body.append(dlg);
+  dlg.querySelector('[data-close]').onclick = () => dlg.close();
+  const agreeBtn = dlg.querySelector('[data-agree]');
+  if (agreeBtn)
+    agreeBtn.onclick = () => {
+      dlg.close();
+      onAgree();
+    };
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+  dlg.onclose = () => dlg.remove();
+  dlg.showModal();
+  try {
+    privacyCache ??= await api('/privacy');
+    if (state.cfg?.privacy) state.cfg.privacy = { version: privacyCache.version, updated: privacyCache.updated };
+    if (!dlg.isConnected) return;
+    dlg.querySelector('.terms-meta').textContent =
+      `版本 ${privacyCache.version} · 更新于 ${privacyCache.updated}`;
+    dlg.querySelector('.terms-doc').innerHTML = privacyCache.html;
+    if (agreeBtn) agreeBtn.disabled = false;
+  } catch (err) {
+    if (dlg.isConnected)
+      dlg.querySelector('.terms-doc').innerHTML =
+        `<p class="err">${icon('circle-alert')}隐私政策加载失败：${esc(err.message)}</p>`;
   }
 }
 
@@ -907,9 +950,9 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
              <div class="hint">密码至少 8 位；用户名 3-32 位字母/数字/下划线/连字符。</div></label>`
       }
       ${
-        state.cfg?.terms
+        state.cfg?.terms && state.cfg?.privacy
           ? `<label class="agree"><input type="checkbox" name="agree" required />
-             <span>我已阅读并同意<a href="/terms" data-terms>《用户协议》</a></span></label>`
+             <span>我已阅读并同意<a href="/terms" data-terms>《用户协议》</a>和<a href="/privacy" data-privacy>《隐私政策》</a></span></label>`
           : ''
       }
       <div class="err" data-err></div>
@@ -927,7 +970,7 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
   });
   const form = app.querySelector('form');
 
-  // 《用户协议》：点开是弹窗，弹窗里点「我已阅读并同意」顺手替人把勾打上。
+  // 两份文档：点开是弹窗，弹窗里点「我已阅读并同意」顺手替人把勾打上。
   // 带修饰键的点击（Ctrl/⌘/Shift/Alt）和中键不拦，让它照常在新标签/新窗口
   // 打开 /terms 独立页 —— 想留着慢慢读的人不该被弹窗按住。
   const termsLink = form.querySelector('[data-terms]');
@@ -938,6 +981,19 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       // 现查当前文档里的表单，而不是闭包里这一个：弹窗开着时浏览器的前进/后退
       // 会把表单整个重建，勾打在已经脱离文档的旧表单上等于没打。
       showTerms({
+        onAgree: () => {
+          const live = app.querySelector('form.auth');
+          if (live?.agree) live.agree.checked = true;
+        },
+      });
+    };
+
+  const privacyLink = form.querySelector('[data-privacy]');
+  if (privacyLink)
+    privacyLink.onclick = (e) => {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      showPrivacy({
         onAgree: () => {
           const live = app.querySelector('form.auth');
           if (live?.agree) live.agree.checked = true;
@@ -1081,7 +1137,10 @@ function renderAuth(mode = 'login', { fresh = true } = {}) {
       }
       const fd = Object.fromEntries(new FormData(form));
       if (turnstileToken) fd.turnstile_token = turnstileToken;
-      if (state.cfg?.terms && fd.agree) fd.termsVersion = state.cfg.terms.version;
+      if (state.cfg?.terms && state.cfg?.privacy && fd.agree) {
+        fd.termsVersion = state.cfg.terms.version;
+        fd.privacyVersion = state.cfg.privacy.version;
+      }
       delete fd.agree;
       const { user, welcomePoints } = await api(`/auth/${mode}`, { method: 'POST', body: fd });
       activeTurnstileTracking?.cleanup?.();

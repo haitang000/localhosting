@@ -242,9 +242,11 @@ addColumn('instances', 'woke_at', 'TEXT');
 addColumn('instances', 'life_days', 'INTEGER');
 addColumn('instances', 'expires_at', 'TEXT');
 addColumn('instances', 'archived_at', 'TEXT');
-// 用户最近同意的《用户协议》版本和时间；完整历史在 audit_log（user.agree_terms）
+// 用户最近同意的《用户协议》和《隐私政策》版本及时间；完整历史在 audit_log
 addColumn('users', 'terms_agreed_version', 'TEXT');
 addColumn('users', 'terms_agreed_at', 'TEXT');
+addColumn('users', 'privacy_agreed_version', 'TEXT');
+addColumn('users', 'privacy_agreed_at', 'TEXT');
 // 积分：新用户注册送一笔，发站点/建实例用它付账；老资源券仍然可用，两条路并存
 addColumn('users', 'points', 'INTEGER NOT NULL DEFAULT 0');
 // 积分兑换码（invites.type = 'points'）每次兑换给多少分
