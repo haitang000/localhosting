@@ -103,8 +103,13 @@ function buildEnv(template, provided) {
   for (const field of template?.env ?? []) {
     let v = provided?.[field.key];
     if (v === undefined || v === '') v = field.default ?? '';
-    if (v === '' && field.generate === 'password') {
-      v = crypto.randomBytes(12).toString('base64url');
+    if (v === '' && field.generate) {
+      // Some applications require a fixed-size key instead of a human login
+      // password. Hex preserves the requested byte length as ASCII text.
+      v =
+        field.generate === 'secret'
+          ? crypto.randomBytes(32).toString('hex')
+          : crypto.randomBytes(12).toString('base64url');
       generated[field.key] = v;
     }
     if (v === '' && field.required) throw bad(`环境变量 ${field.label || field.key} 必填`);

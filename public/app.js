@@ -2224,7 +2224,7 @@ function envFieldHtml(f, value) {
   }
   return `<label class="field"><span>${esc(f.label || f.key)}${f.required ? ' *' : ''}</span>
     <input name="${esc(id)}" type="${f.type === 'password' ? 'password' : 'text'}"
-      value="${esc(val)}" placeholder="${f.generate === 'password' ? '留空则自动生成强密码' : ''}" />
+      value="${esc(val)}" placeholder="${f.generate ? '留空则自动生成随机密钥' : ''}" />
     <div class="hint mono">${esc(f.key)}</div></label>`;
 }
 
@@ -3032,8 +3032,8 @@ function viewNew() {
           f.type === 'password'
             ? val
               ? '••••••'
-              : f.generate === 'password'
-                ? '将自动生成强密码'
+              : f.generate
+                ? '将自动生成随机密钥'
                 : '（空）'
             : esc(val) || '（空）',
         ]);
@@ -3451,12 +3451,6 @@ async function viewInstance(id) {
             : ''
         }
          ${!waiting && i.status !== 'archived' && i.status !== 'banned' && i.sleep?.available ? sleepCardHtml(i) : ''}
-        ${
-          envRows
-            ? `<div class="card">${cat('settings', '环境变量', { flush: true })}
-               <div class="table-wrap"><table class="cards">${envRows}</table></div></div>`
-            : ''
-        }
         <div class="card">
           ${cat('list-checks', waiting ? '申请动态' : '部署进度', { flush: true })}
           <pre class="logs" id="events" style="max-height:200px">等待事件…</pre>
@@ -3471,6 +3465,15 @@ async function viewInstance(id) {
           </label>
         </div>
         <pre class="logs" id="logbox">${loader({ inline: true })}</pre>
+      </div>`;
+
+    const environment = `<div class="card">
+        ${cat('settings', '环境变量', { flush: true })}
+        ${
+          envRows
+            ? `<div class="table-wrap"><table class="cards">${envRows}</table></div>`
+            : `<div class="empty">这台实例没有环境变量。</div>`
+        }
       </div>`;
 
     /* 容器没在跑的时候，控制台是一块什么都做不了的黑框：接不上、也不会说为什么。
@@ -3625,6 +3628,9 @@ async function viewInstance(id) {
          <button data-tab="overview" class="${tab === 'overview' ? 'on' : ''}">${icon(
            'layout-dashboard'
          )}概览</button>
+         <button data-tab="environment" class="${tab === 'environment' ? 'on' : ''}">${icon(
+           'settings'
+         )}环境变量</button>
          ${
            waiting || creating
              ? ''
@@ -3644,6 +3650,8 @@ async function viewInstance(id) {
        ${
          tab === 'overview'
            ? overview
+           : tab === 'environment'
+             ? environment
            : tab === 'logs'
              ? logs
              : tab === 'files'

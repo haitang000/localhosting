@@ -2,8 +2,9 @@
  * Image catalog. Everything a normal user can deploy without the
  * `allow_custom_image` flag comes from here.
  *
- * env[].generate = 'password' -> a random value is generated when the user
- * leaves the field empty, and shown back on the instance page.
+ * env[].generate = 'password' -> a random password is generated when the user
+ * leaves the field empty. 'secret' generates 32 random bytes as 64 hex chars.
+ * Generated values are shown back on the instance page.
  */
 export const TEMPLATES = [
   {
@@ -1530,8 +1531,14 @@ export const TEMPLATES = [
       { key: 'REDIS_PASSWORD', label: 'Redis 密码（没有则留空）', type: 'password' },
       { key: 'ADMIN_EMAIL', label: '管理员邮箱', type: 'text', default: 'admin@sub2api.local', required: true },
       { key: 'ADMIN_PASSWORD', label: '管理员密码', type: 'password', required: true, generate: 'password' },
-      { key: 'JWT_SECRET', label: 'JWT 密钥', type: 'password', required: true, generate: 'password' },
-      { key: 'TOTP_ENCRYPTION_KEY', label: '二次验证加密密钥', type: 'password', required: true, generate: 'password' },
+      { key: 'JWT_SECRET', label: 'JWT 密钥（64 位十六进制）', type: 'password', required: true, generate: 'secret' },
+      {
+        key: 'TOTP_ENCRYPTION_KEY',
+        label: '二次验证加密密钥（64 位十六进制）',
+        type: 'password',
+        required: true,
+        generate: 'secret',
+      },
       { key: 'TZ', label: '时区', type: 'text', default: 'Asia/Shanghai' },
     ],
     dependencies: [
