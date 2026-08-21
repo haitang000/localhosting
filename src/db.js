@@ -217,6 +217,53 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL
 );
 
+-- 资源使用统计：定期采集实例的 CPU/内存/网络/磁盘使用数据
+CREATE TABLE IF NOT EXISTS resource_stats (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id   TEXT NOT NULL,
+  user_id       INTEGER NOT NULL,
+  cpu_percent   REAL,
+  memory_mb     REAL,
+  memory_percent REAL,
+  network_rx_mb REAL,
+  network_tx_mb REAL,
+  disk_mb       REAL,
+  collected_at  TEXT NOT NULL
+);
+
+-- 定时任务：用户为实例配置的定时启动/停止/重启/备份
+-- cron 格式：分 时 日 月 周（"0 9 * * 1-5" = 工作日上午9点）
+-- action：start | stop | restart | backup
+-- status：active | paused
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action      TEXT NOT NULL,
+  cron        TEXT NOT NULL,
+  timezone    TEXT NOT NULL DEFAULT 'UTC',
+  status      TEXT NOT NULL DEFAULT 'active',
+  last_run_at TEXT,
+  next_run_at TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+-- 实例备份：导出的配置和数据
+-- type：manual | scheduled
+-- format：compose（docker-compose.yml + 数据卷 tar）
+CREATE TABLE IF NOT EXISTS backups (
+  id          TEXT PRIMARY KEY,
+  instance_id TEXT NOT NULL,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  type        TEXT NOT NULL DEFAULT 'manual',
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  file_path   TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);
 CREATE INDEX IF NOT EXISTS idx_sites_user ON sites(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
@@ -226,6 +273,12 @@ CREATE INDEX IF NOT EXISTS idx_alerts_instance ON alerts(instance_id, status);
 CREATE INDEX IF NOT EXISTS idx_point_txns_user ON point_txns(user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, read_at, id DESC);
+CREATE INDEX IF NOT EXISTS idx_resource_stats_instance ON resource_stats(instance_id, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_resource_stats_user ON resource_stats(user_id, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_instance ON scheduled_tasks(instance_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(status, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_backups_instance ON backups(instance_id);
+CREATE INDEX IF NOT EXISTS idx_backups_user ON backups(user_id, created_at DESC);
 `);
 
 // Lightweight forward migrations for databases created by earlier versions.

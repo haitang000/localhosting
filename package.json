@@ -18,6 +18,8 @@
     "compression": "^1.8.1",
     "dockerode": "^5.0.1",
     "express": "^5.1.0",
-    "marked": "^18.0.7"
+    "marked": "^18.0.7",
+    "tar": "^7.5.22",
+    "yaml": "^2.9.0"
   }
 }

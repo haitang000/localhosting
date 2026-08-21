@@ -59,6 +59,7 @@ export function renderIndex({ name, color, description, baseUrl, hasPublicUrl })
     ${ogUrl ? `    <meta property="og:url" content="${esc(ogUrl)}" />\n` : ''}
     <meta name="twitter:card" content="summary" />
     <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/stats.css" />
     <link rel="icon" href="${esc(FAVICON.replace('COLOR', color.replace('#', '')))}" />
     <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
   </head>

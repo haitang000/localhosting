@@ -277,6 +277,10 @@ export const config = {
     .map((s) => s.trim()),
   maxLogLines: num(process.env.MAX_LOG_LINES, 500),
 
+  // --- 资源统计采集 ---
+  // 定期采集运行中实例的 CPU/内存/网络/磁盘使用数据，用于报表展示
+  statsCollectSeconds: num(process.env.STATS_COLLECT_SECONDS, 300),
+
   // --- Live console (docker exec with a TTY, streamed to the browser) ---
   // How much output a session keeps for reattaching tabs, and how long a
   // session with nobody attached is kept before the shell is killed.

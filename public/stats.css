@@ -1,0 +1,951 @@
+/* 资源统计、定时任务、备份管理的样式 */
+
+/* ==================== 通用 ==================== */
+.stats-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.btn-group {
+  display: flex;
+  gap: 8px;
+}
+
+.page-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* ==================== 资源统计 ==================== */
+.stats-section {
+  margin-bottom: 40px;
+}
+
+.stats-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--foreground);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.stat-icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-flat);
+  color: var(--primary);
+  border-radius: 10px;
+}
+
+.stat-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.stat-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--default-500);
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--foreground);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.stat-meta {
+  font-size: 12px;
+  color: var(--default-500);
+}
+
+/* 用户排行表格 */
+.ranking-table {
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ranking-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ranking-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--default-500);
+  background: var(--content2);
+  border-bottom: 1px solid var(--divider);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ranking-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.ranking-table tr:last-child td {
+  border-bottom: none;
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--default-100);
+  color: var(--default-600);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rank-badge.top {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #7a5a00;
+}
+
+/* 实例统计列表 */
+.instance-stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.instance-stat-item {
+  padding: 16px;
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+
+.instance-stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.instance-stat-info {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--default-500);
+}
+
+.instance-stat-info span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.instance-stat-info svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ==================== 定时任务 ==================== */
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.task-card {
+  padding: 20px;
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.task-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.task-card.paused {
+  opacity: 0.6;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.task-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.task-title strong {
+  font-size: 15px;
+  color: var(--foreground);
+}
+
+.task-action-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.task-action-badge.start {
+  background: #d1f4e0;
+  color: #0e6b3a;
+}
+
+.task-action-badge.stop {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.task-action-badge.restart {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.task-action-badge.backup {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.task-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-cron {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--foreground);
+}
+
+.task-cron svg {
+  width: 16px;
+  height: 16px;
+  color: var(--default-500);
+}
+
+.task-cron code {
+  padding: 4px 8px;
+  background: var(--content2);
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.cron-hint {
+  color: var(--default-500);
+  font-size: 13px;
+}
+
+.task-meta {
+  font-size: 12px;
+  color: var(--default-500);
+}
+
+/* Cron 示例按钮 */
+.cron-examples {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* ==================== 备份管理 ==================== */
+.backups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.backup-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: var(--content1);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.backup-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.backup-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex: 1;
+}
+
+.backup-icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--content2);
+  color: var(--default-600);
+  border-radius: 10px;
+}
+
+.backup-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.backup-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.backup-info strong {
+  font-size: 15px;
+  color: var(--foreground);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.backup-meta {
+  font-size: 13px;
+  color: var(--default-500);
+  margin-bottom: 4px;
+}
+
+.backup-time {
+  font-size: 12px;
+  color: var(--default-400);
+}
+
+.backup-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ==================== 对话框 ==================== */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.dialog[hidden] {
+  display: none;
+}
+
+.dialog-content {
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  background: var(--content1);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.dialog-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.dialog-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--divider);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 8px;
+}
+
+.help-text {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--default-500);
+  margin-left: 4px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--content1);
+  color: var(--foreground);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-flat);
+}
+
+textarea.form-control {
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.export-info,
+.import-info {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--content2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--default-600);
+}
+
+.export-info svg,
+.import-info svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--primary);
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-value {
+    font-size: 24px;
+  }
+
+  .page-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .page-actions .btn {
+    width: 100%;
+  }
+
+  .task-header,
+  .backup-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .task-controls,
+  .backup-actions {
+    width: 100%;
+  }
+
+  .task-controls .btn,
+  .backup-actions .btn {
+    flex: 1;
+  }
+
+  .dialog-content {
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .cron-examples {
+    flex-direction: column;
+  }
+
+  .cron-examples .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  .task-action-badge.start {
+    background: #064e3b;
+    color: #a7f3d0;
+  }
+
+  .task-action-badge.stop {
+    background: #7f1d1d;
+    color: #fecdd3;
+  }
+
+  .task-action-badge.restart {
+    background: #78350f;
+    color: #fef3c7;
+  }
+
+  .task-action-badge.backup {
+    background: #1e3a8a;
+    color: #bfdbfe;
+  }
+
+  .rank-badge.top {
+    background: linear-gradient(135deg, #ca8a04 0%, #eab308 100%);
+    color: #fef3c7;
+  }
+}
+
+/* These pages share the main application shell. Keep their content density and
+   controls aligned with the rest of the panel instead of introducing a second
+   page framework. */
+.stats-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.stats-page .page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0 0 28px;
+}
+
+.stats-page .page-header h1 {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.021em;
+  line-height: 1.2;
+}
+
+.stats-page .page-header h1 .ico {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--primary);
+}
+
+.stats-page .page-header > .sub {
+  grid-column: 1;
+  margin: 0;
+}
+
+.stats-page .page-header > .btn,
+.stats-page .page-header > .page-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.stats-page .page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.stats-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.stats-controls .btn-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--default-100);
+}
+
+.stats-controls .range-btn {
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--default-500);
+  font-size: 13px;
+}
+
+.stats-controls .range-btn.active {
+  background: var(--content1);
+  color: var(--foreground);
+  box-shadow: var(--shadow-sm);
+}
+
+.stats-section {
+  margin-bottom: 32px;
+}
+
+.stats-section h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+.stat-card,
+.task-card,
+.backup-card,
+.instance-stat-item {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-card {
+  min-width: 0;
+  padding: 18px;
+  background: var(--content1);
+}
+
+.stat-card:hover,
+.task-card:hover,
+.backup-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-icon,
+.backup-icon {
+  border-radius: var(--radius-md);
+}
+
+.stat-value {
+  font-size: 25px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ranking-table {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ranking-table table {
+  min-width: 520px;
+}
+
+.ranking-table th {
+  background: var(--default-100);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.task-action-badge.start {
+  background: var(--success-flat);
+  color: var(--success);
+}
+
+.task-action-badge.stop {
+  background: var(--danger-flat);
+  color: var(--danger);
+}
+
+.task-action-badge.restart {
+  background: var(--warning-flat);
+  color: var(--warning);
+}
+
+.task-action-badge.backup {
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+
+.instance-stat-item {
+  padding: 16px 18px;
+  background: var(--content1);
+}
+
+.instance-stat-header {
+  gap: 12px;
+}
+
+.instance-stat-header strong,
+.task-title strong,
+.backup-info strong {
+  overflow-wrap: anywhere;
+}
+
+.instance-stat-info {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.instance-stat-info .badge {
+  font-size: 12px;
+}
+
+.tasks-list,
+.backups-list {
+  gap: 12px;
+}
+
+.task-card,
+.backup-card {
+  padding: 18px;
+  background: var(--content1);
+}
+
+.task-header {
+  gap: 12px;
+}
+
+.task-title {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.task-action-badge {
+  border-radius: 999px;
+  padding: 3px 9px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.task-controls,
+.backup-actions {
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.task-controls .small,
+.backup-actions .small {
+  min-width: 36px;
+  padding-inline: 10px;
+}
+
+.task-cron {
+  flex-wrap: wrap;
+}
+
+.task-cron code {
+  border-radius: var(--radius-sm);
+  background: var(--default-100);
+}
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 64px 20px;
+  color: var(--default-500);
+  text-align: center;
+}
+
+.empty-state > .ico {
+  width: 34px;
+  height: 34px;
+  color: var(--default-400);
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.dialog-content {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog-header,
+.dialog-body,
+.dialog-footer {
+  padding-inline: 20px;
+}
+
+@media (max-width: 640px) {
+  /* The shared header now has seven or more destinations. Let the strip scroll
+     between stable touch targets instead of squeezing labels into unreadable
+     columns on narrow phones. */
+  nav.tabs:has(> a:nth-child(7)) {
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  nav.tabs:has(> a:nth-child(7))::-webkit-scrollbar {
+    display: none;
+  }
+
+  nav.tabs:has(> a:nth-child(7)) a {
+    flex: 0 0 56px;
+  }
+
+  .stats-page .page-header {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-bottom: 22px;
+  }
+
+  .stats-page .page-header h1,
+  .stats-page .page-header > .sub,
+  .stats-page .page-header > .btn,
+  .stats-page .page-header > .page-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .stats-page .page-header > .btn,
+  .stats-page .page-header > .page-actions {
+    justify-self: stretch;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .stats-page .page-actions > .btn {
+    flex: 1 1 0;
+  }
+
+  .stats-page .page-header h1 {
+    font-size: 21px;
+  }
+
+  .stats-controls {
+    margin-bottom: 22px;
+  }
+
+  .stats-controls .btn-group {
+    width: 100%;
+  }
+
+  .stats-controls .range-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
+  .task-header,
+  .backup-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .task-controls,
+  .backup-actions {
+    width: 100%;
+  }
+
+  .task-controls .small,
+  .backup-actions .small {
+    flex: 1 1 0;
+  }
+
+  .backup-header {
+    min-width: 0;
+  }
+
+  .ranking-table {
+    overflow-x: auto;
+  }
+}

@@ -1479,6 +1479,15 @@ function shell(active, inner) {
               }>${icon('globe')}静态站点</a>`
             : ''
         }
+        <a href="#/stats" class="${active === 'stats' ? 'active' : ''}"${
+          active === 'stats' ? ' aria-current="page"' : ''
+        }>${icon('activity')}统计</a>
+        <a href="#/tasks" class="${active === 'tasks' ? 'active' : ''}"${
+          active === 'tasks' ? ' aria-current="page"' : ''
+        }>${icon('clock')}任务</a>
+        <a href="#/backups" class="${active === 'backups' ? 'active' : ''}"${
+          active === 'backups' ? ' aria-current="page"' : ''
+        }>${icon('archive')}备份</a>
         ${
           admin
             ? `<a href="#/admin" class="${active === 'admin' ? 'active' : ''}"${
@@ -6313,9 +6322,17 @@ function pickFiles(directory, onFiles, opts = {}) {
   input.click();
 }
 
-async function uploadFiles(path, list, extra = {}) {
+async function uploadFiles(path, list, extra = {}, onProgress) {
   const files = [];
-  for (const x of list) files.push({ path: x.path, base64: await fileToBase64(x.file) });
+  const BATCH = 4;
+  for (let i = 0; i < list.length; i += BATCH) {
+    const batch = list.slice(i, i + BATCH);
+    const encoded = await Promise.all(
+      batch.map((x) => fileToBase64(x.file).then((b64) => ({ path: x.path, base64: b64 })))
+    );
+    files.push(...encoded);
+    onProgress?.(Math.min(100, Math.round(((i + batch.length) / list.length) * 100)));
+  }
   return api(path, { method: 'POST', body: { ...extra, files } });
 }
 
@@ -6392,13 +6409,21 @@ async function viewSites() {
     const mine = vouchers
       .filter((v) => v.remaining > 0 && (!v.expiresAt || new Date(v.expiresAt) > new Date()))
       .sort((a, b) => Number(b.siteOnly) - Number(a.siteOnly));
-    const summary = staged
-      ? `<div class="card" style="margin-top:14px">
+    const summaryHtml = () =>
+      staged
+        ? `<div class="card" style="margin-top:14px">
            ${cat('inbox', `待发布：${staged.length} 个文件 · ${bytes(totalBytes(staged))}`, {
              flush: true,
            })}
            <div class="filelist">${withoutRoot(staged)
-             .map((f) => `<div><span class="mono">${esc(f.path)}</span><span class="sub">${bytes(f.file.size)}</span></div>`)
+             .map(
+               (f, i) =>
+                 `<div><span class="mono">${esc(f.path)}</span><span class="sub">${bytes(
+                   f.file.size
+                 )}</span><button type="button" class="small ghost icon-only" data-rmfile="${i}" title="移除文件" style="padding:0 4px;min-width:auto;line-height:1">${icon(
+                   'x'
+                 )}</button></div>`
+             )
              .join('')}</div>
            ${
              entryOf(staged)
@@ -6410,7 +6435,7 @@ async function viewSites() {
                  )}分不清哪个是首页，请把它命名为 index.html 再拖一次。</div>`
            }
          </div>`
-      : '';
+        : '';
 
     shell(
       'sites',
@@ -6420,8 +6445,8 @@ async function viewSites() {
          <span class="sub">${icon('files')}${sites.length} / ${limits.maxSites}</span></div>
 
        <div class="card">
-         ${dropzoneHtml('dz')}
-         ${summary}
+          ${dropzoneHtml('dz')}
+          <div id="site-summary">${summaryHtml()}</div>
          <form id="site-form" style="margin-top:16px">
            <div class="two">
              <label class="field"><span>${icon('globe')}站点名 *</span>
@@ -6475,6 +6500,27 @@ async function viewSites() {
        }`
     );
 
+    function refreshSummary() {
+      const el = document.getElementById('site-summary');
+      if (!el) return;
+      el.innerHTML = summaryHtml();
+      const btn = document.querySelector('#site-form button[type=submit]');
+      if (btn) {
+        btn.disabled = !staged;
+        btn.innerHTML = staged
+          ? `${icon('rocket')}发布（${staged.length} 个文件）`
+          : `${icon('rocket')}发布（先拖文件进来）`;
+      }
+      el.querySelectorAll('[data-rmfile]').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          staged.splice(Number(b.dataset.rmfile), 1);
+          if (!staged.length) staged = null;
+          refreshSummary();
+        };
+      });
+    }
+
     wireDropzone(document.getElementById('dz'), (list) => {
       if (!list.length) return toast('没有可用的文件（隐藏文件和 node_modules 会被忽略）', 'err');
       staged = list;
@@ -6487,17 +6533,29 @@ async function viewSites() {
         .replace(/^-+|-+$/g, '')
         .slice(0, 40);
       if (form && !form.slug.value && guess.length >= 3 && guess !== 'index') form.slug.value = guess;
-      const keep = form ? Object.fromEntries(new FormData(form)) : null;
-      paint().then(() => {
-        const f = document.getElementById('site-form');
-        if (f && keep) for (const [k, v] of Object.entries(keep)) if (f[k]) f[k].value = v;
-      });
+      refreshSummary();
     });
 
     const form = document.getElementById('site-form');
     app
       .querySelectorAll('[data-usevoucher]')
       .forEach((b) => (b.onclick = () => (form.inviteCode.value = b.dataset.usevoucher)));
+
+    const slugInput = form.querySelector('[name=slug]');
+    if (slugInput) {
+      const slugHint = slugInput.parentElement.querySelector('.hint');
+      slugInput.addEventListener('input', () => {
+        const v = slugInput.value.trim();
+        if (!v) {
+          slugInput.style.borderColor = '';
+          if (slugHint) slugHint.style.color = '';
+          return;
+        }
+        const valid = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(v);
+        slugInput.style.borderColor = valid ? 'var(--success)' : 'var(--danger)';
+        if (slugHint) slugHint.style.color = valid ? '' : 'var(--danger)';
+      });
+    }
 
     form.onsubmit = async (e) => {
       e.preventDefault();
@@ -6506,12 +6564,22 @@ async function viewSites() {
       const errEl = form.querySelector('[data-err]');
       btn.disabled = true;
       errEl.textContent = '';
-      btn.innerHTML = `${icon('upload')}上传中…`;
+      btn.innerHTML = `${icon('upload')}编码中… 0%`;
       try {
-        const { site } = await uploadFiles('/sites', staged, {
-          slug: form.slug.value.trim().toLowerCase(),
-          inviteCode: form.inviteCode?.value.trim(),
-        });
+        const { site } = await uploadFiles(
+          '/sites',
+          staged,
+          {
+            slug: form.slug.value.trim().toLowerCase(),
+            inviteCode: form.inviteCode?.value.trim(),
+          },
+          (pct) => {
+            btn.innerHTML =
+              pct < 100
+                ? `${icon('upload')}编码中… ${pct}%`
+                : `${icon('upload')}上传中…`;
+          }
+        );
         staged = null;
         toast(`已发布：${site.address}`, 'ok');
         await paint();
@@ -7936,9 +8004,12 @@ function route() {
     return renderAuth(location.hash.startsWith('#/register') ? 'register' : 'login', {
       fresh: false,
     });
-    const parts = location.hash.replace(/^#\/?/, '').split('/');
+    const rawHash = location.hash.replace(/^#\/?/, '');
+    const [path, query = ''] = rawHash.split('?');
+    const parts = path.split('/');
     const section = parts[0] || 'instances';
     const arg = parts[1];
+    const params = new URLSearchParams(query);
 
     switch (section) {
       case 'new':
@@ -7953,6 +8024,12 @@ function route() {
         return viewAccount();
       case 'notifications':
         return viewNotifications();
+      case 'stats':
+        return viewStats(params.get('range') || '24h');
+      case 'tasks':
+        return viewTasks();
+      case 'backups':
+        return viewBackups();
       case 'instances':
         return viewInstances();
       default:
@@ -7995,6 +8072,655 @@ app.addEventListener('click', (e) => {
   e.preventDefault();
   openAnnouncementLightbox(img);
 });
+
+/* ==================== 资源统计 ==================== */
+function renderTopbar() {
+  const admin = state.user.role === 'admin';
+  return `
+    <div class="brand"><span class="brandmark">${icon('boxes')}</span>${esc(
+      state.cfg?.panelName || 'localhosting'
+    )}</div>
+    <nav class="tabs">
+      <a href="#/instances">${icon('boxes')}概览</a>
+      <a href="#/new">${icon('circle-plus')}新建</a>
+      ${state.cfg?.sites?.enabled ? `<a href="#/sites">${icon('globe')}站点</a>` : ''}
+      <a href="#/stats">${icon('activity')}统计</a>
+      <a href="#/tasks">${icon('clock')}任务</a>
+      <a href="#/backups">${icon('archive')}备份</a>
+      ${admin ? `<a href="#/admin">${icon('shield')}管理</a>` : ''}
+      <a href="#/account">${icon('circle-user')}账号</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="whoami">
+      <div class="notification-wrap">
+        <button class="small ghost notification-toggle" aria-label="查看通知">${icon('bell')}${
+          state.notificationCount ? `<span class="notification-count">${state.notificationCount > 99 ? '99+' : state.notificationCount}</span>` : ''
+        }</button>
+      </div>
+      <div class="avatar">${esc(state.user.username.slice(0, 2).toUpperCase())}</div>
+      <span>${esc(state.user.username)}${admin ? ' · 管理员' : ''}</span>
+    </div>
+  `;
+}
+
+async function viewStats(range = '24h') {
+  const selectedRange = ['1h', '24h', '7d', '30d'].includes(range) ? range : '24h';
+  shell('stats', `
+    <main class="stats-page">
+      <header class="page-header">
+        <h1>${icon('activity')}资源统计</h1>
+        <p class="sub">查看实例的资源使用情况</p>
+      </header>
+      ${loader({ label: '加载统计数据' })}
+    </main>
+  `);
+
+  try {
+    const [userStats, instances] = await Promise.all([
+      api(`/stats/user?range=${selectedRange}`),
+      api('/instances')
+    ]);
+
+    const isAdmin = state.user.role === 'admin';
+    let globalStats = null;
+    let ranking = null;
+
+    if (isAdmin) {
+      [globalStats, ranking] = await Promise.all([
+        api(`/stats/global?range=${selectedRange}`),
+        api(`/stats/ranking?metric=cpu&range=${selectedRange}&limit=10`)
+      ]);
+    }
+
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('activity')}资源统计</h1>
+        <p class="sub">查看实例的资源使用情况</p>
+      </header>
+
+      <!-- 时间范围选择 -->
+      <div class="stats-controls">
+        <div class="btn-group" role="group">
+          <button class="btn range-btn ${selectedRange === '1h' ? 'active' : ''}" data-range="1h">1 小时</button>
+          <button class="btn range-btn ${selectedRange === '24h' ? 'active' : ''}" data-range="24h">24 小时</button>
+          <button class="btn range-btn ${selectedRange === '7d' ? 'active' : ''}" data-range="7d">7 天</button>
+          <button class="btn range-btn ${selectedRange === '30d' ? 'active' : ''}" data-range="30d">30 天</button>
+        </div>
+      </div>
+
+      <!-- 用户统计卡片 -->
+      <section class="stats-section">
+        <h2>我的资源使用</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">${icon('cpu')}</div>
+            <div class="stat-content">
+              <div class="stat-label">平均 CPU</div>
+              <div class="stat-value">${userStats.stats.avgCpu.toFixed(2)}%</div>
+              <div class="stat-meta">峰值 ${userStats.stats.maxCpu.toFixed(2)}%</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">${icon('memory-stick')}</div>
+            <div class="stat-content">
+              <div class="stat-label">平均内存</div>
+              <div class="stat-value">${userStats.stats.avgMemory.toFixed(0)} MB</div>
+              <div class="stat-meta">峰值 ${userStats.stats.maxMemory.toFixed(0)} MB</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">${icon('network')}</div>
+            <div class="stat-content">
+              <div class="stat-label">网络流量</div>
+              <div class="stat-value">${bytes(userStats.stats.totalRx * 1048576 + userStats.stats.totalTx * 1048576)}</div>
+              <div class="stat-meta">↓ ${userStats.stats.totalRx.toFixed(1)} MB / ↑ ${userStats.stats.totalTx.toFixed(1)} MB</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      ${isAdmin ? `
+      <!-- 全局统计（管理员） -->
+      <section class="stats-section">
+        <h2>全局统计</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">${icon('server')}</div>
+            <div class="stat-content">
+              <div class="stat-label">活跃实例</div>
+              <div class="stat-value">${globalStats.stats.instanceCount}</div>
+              <div class="stat-meta">${globalStats.stats.userCount} 个用户</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">${icon('cpu')}</div>
+            <div class="stat-content">
+              <div class="stat-label">全局 CPU</div>
+              <div class="stat-value">${globalStats.stats.avgCpu.toFixed(2)}%</div>
+              <div class="stat-meta">峰值 ${globalStats.stats.maxCpu.toFixed(2)}%</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">${icon('memory-stick')}</div>
+            <div class="stat-content">
+              <div class="stat-label">全局内存</div>
+              <div class="stat-value">${globalStats.stats.avgMemory.toFixed(0)} MB</div>
+              <div class="stat-meta">峰值 ${globalStats.stats.maxMemory.toFixed(0)} MB</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 用户排行（管理员） -->
+      <section class="stats-section">
+        <h2>资源消耗排行</h2>
+        <div class="ranking-table">
+          <table>
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>用户</th>
+                <th>平均 CPU</th>
+                <th>实例数</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ranking.ranking.map((item, idx) => `
+                <tr>
+                  <td><span class="rank-badge ${idx < 3 ? 'top' : ''}">#${idx + 1}</span></td>
+                  <td>${esc(item.username)}</td>
+                  <td>${item.value.toFixed(2)}%</td>
+                  <td>${item.instance_count}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      ` : ''}
+
+      <!-- 实例列表 -->
+      <section class="stats-section">
+        <h2>实例详情</h2>
+        <div class="instance-stats-list">
+          ${instances.instances.filter(i => i.status === 'running').map(inst => `
+            <div class="instance-stat-item">
+              <div class="instance-stat-header">
+                <strong>${esc(inst.name)}</strong>
+                <a href="#/i/${esc(inst.id)}/stats" class="btn small">查看详情</a>
+              </div>
+              <div class="instance-stat-info">
+                <span>${icon('cpu')} ${inst.cpus} 核</span>
+                <span>${icon('memory-stick')} ${inst.memoryMb} MB</span>
+                <span class="badge running">${icon('play')}运行中</span>
+              </div>
+            </div>
+          `).join('') || '<p class="empty">暂无运行中的实例</p>'}
+        </div>
+      </section>
+    `;
+
+    // 时间范围切换
+    app.querySelectorAll('.range-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const range = btn.dataset.range;
+        app.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // 重新加载数据
+        location.hash = `#/stats?range=${range}`;
+      });
+    });
+
+  } catch (err) {
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('activity')}资源统计</h1>
+      </header>
+      <div class="empty-state">
+        ${icon('circle-alert')}
+        <p>加载失败：${esc(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+/* ==================== 定时任务 ==================== */
+async function viewTasks() {
+  shell('tasks', `
+    <main class="stats-page">
+      <header class="page-header">
+        <h1>${icon('clock')}定时任务</h1>
+        <p class="sub">管理实例的定时启动、停止、重启和备份</p>
+      </header>
+      ${loader({ label: '加载任务列表' })}
+    </main>
+  `);
+
+  try {
+    const [tasks, instances] = await Promise.all([
+      api('/stats/tasks'),
+      api('/instances')
+    ]);
+
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('clock')}定时任务</h1>
+        <p class="sub">管理实例的定时启动、停止、重启和备份</p>
+        <button class="btn primary" onclick="openTaskDialog()">
+          ${icon('plus')}新建任务
+        </button>
+      </header>
+
+      ${tasks.tasks.length > 0 ? `
+        <div class="tasks-list">
+          ${tasks.tasks.map(task => `
+            <div class="task-card ${task.status}">
+              <div class="task-header">
+                <div class="task-title">
+                  <strong>${esc(task.instance_name)}</strong>
+                  <span class="task-action-badge ${task.action}">${
+                    { start: '启动', stop: '停止', restart: '重启', backup: '备份' }[task.action]
+                  }</span>
+                </div>
+                <div class="task-controls">
+                  <button class="btn small" onclick="editTask('${task.id}')" title="编辑">
+                    ${icon('pencil')}
+                  </button>
+                  <button class="btn small" onclick="toggleTask('${task.id}', '${task.status}')" title="${task.status === 'active' ? '暂停' : '启用'}">
+                    ${icon(task.status === 'active' ? 'square' : 'play')}
+                  </button>
+                  <button class="btn small danger" onclick="deleteTask('${task.id}')" title="删除">
+                    ${icon('trash-2')}
+                  </button>
+                </div>
+              </div>
+              <div class="task-info">
+                <div class="task-cron">
+                  ${icon('calendar')}
+                  <code>${esc(task.cron)}</code>
+                  <span class="cron-hint">${parseCronHint(task.cron)}</span>
+                </div>
+                <div class="task-meta">
+                  ${task.last_run_at ? `上次: ${when(task.last_run_at)}` : '从未运行'}
+                  ${task.next_run_at ? `· 下次: ${when(task.next_run_at)}` : ''}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : `
+        <div class="empty-state">
+          ${icon('clock')}
+          <p>还没有定时任务</p>
+          <button class="btn primary" onclick="openTaskDialog()">创建第一个任务</button>
+        </div>
+      `}
+
+      <!-- 新建/编辑任务对话框 -->
+      <div id="taskDialog" class="dialog" hidden>
+        <div class="dialog-content">
+          <div class="dialog-header">
+            <h2 id="taskDialogTitle">新建定时任务</h2>
+            <button class="btn-icon" onclick="closeTaskDialog()">
+              ${icon('x')}
+            </button>
+          </div>
+          <form id="taskForm" class="dialog-body">
+            <div class="form-group">
+              <label for="taskInstance">实例</label>
+              <select id="taskInstance" class="form-control" required>
+                <option value="">选择实例</option>
+                ${instances.instances.map(inst => `
+                  <option value="${esc(inst.id)}">${esc(inst.name)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="taskAction">操作类型</label>
+              <select id="taskAction" class="form-control" required>
+                <option value="start">启动</option>
+                <option value="stop">停止</option>
+                <option value="restart">重启</option>
+                <option value="backup">备份</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="taskCron">
+                Cron 表达式
+                <span class="help-text">格式：分 时 日 月 周</span>
+              </label>
+              <input type="text" id="taskCron" class="form-control" placeholder="0 9 * * *" required />
+              <div class="cron-examples">
+                <button type="button" class="btn small" onclick="document.getElementById('taskCron').value='0 9 * * *'">每天 9:00</button>
+                <button type="button" class="btn small" onclick="document.getElementById('taskCron').value='0 9 * * 1-5'">工作日 9:00</button>
+                <button type="button" class="btn small" onclick="document.getElementById('taskCron').value='*/30 * * * *'">每 30 分钟</button>
+                <button type="button" class="btn small" onclick="document.getElementById('taskCron').value='0 0 * * 0'">每周日 0:00</button>
+              </div>
+            </div>
+            <input type="hidden" id="taskId" />
+          </form>
+          <div class="dialog-footer">
+            <button type="button" class="btn" onclick="closeTaskDialog()">取消</button>
+            <button type="submit" form="taskForm" class="btn primary">保存</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 表单提交
+    document.getElementById('taskForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const taskId = document.getElementById('taskId').value;
+      const data = {
+        instanceId: document.getElementById('taskInstance').value,
+        action: document.getElementById('taskAction').value,
+        cron: document.getElementById('taskCron').value.trim(),
+      };
+
+      try {
+        if (taskId) {
+          await api(`/stats/tasks/${taskId}`, { method: 'PUT', body: data });
+          toast('任务已更新', 'ok');
+        } else {
+          await api('/stats/tasks', { method: 'POST', body: data });
+          toast('任务已创建', 'ok');
+        }
+        closeTaskDialog();
+        viewTasks();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+
+  } catch (err) {
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('clock')}定时任务</h1>
+      </header>
+      <div class="empty-state">
+        ${icon('circle-alert')}
+        <p>加载失败：${esc(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+function parseCronHint(cron) {
+  const parts = cron.split(/\s+/);
+  if (parts.length !== 5) return '';
+
+  const [min, hour, day, month, week] = parts;
+
+  // 简单的 cron 提示解析
+  if (cron === '0 9 * * *') return '每天上午 9:00';
+  if (cron === '0 9 * * 1-5') return '工作日上午 9:00';
+  if (cron === '*/30 * * * *') return '每 30 分钟';
+  if (cron === '0 0 * * 0') return '每周日午夜';
+  if (min.startsWith('*/')) return `每 ${min.slice(2)} 分钟`;
+  if (hour === '*' && day === '*' && month === '*' && week === '*') return `每小时第 ${min} 分钟`;
+
+  return '自定义时间';
+}
+
+window.openTaskDialog = function(taskId = null) {
+  const dialog = document.getElementById('taskDialog');
+  const form = document.getElementById('taskForm');
+
+  if (taskId) {
+    // TODO: 加载任务数据并填充表单
+    document.getElementById('taskDialogTitle').textContent = '编辑定时任务';
+    document.getElementById('taskId').value = taskId;
+  } else {
+    document.getElementById('taskDialogTitle').textContent = '新建定时任务';
+    form.reset();
+    document.getElementById('taskId').value = '';
+  }
+
+  dialog.hidden = false;
+};
+
+window.closeTaskDialog = function() {
+  document.getElementById('taskDialog').hidden = true;
+};
+
+window.editTask = function(taskId) {
+  openTaskDialog(taskId);
+};
+
+window.toggleTask = async function(taskId, currentStatus) {
+  try {
+    const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+    await api(`/stats/tasks/${taskId}`, { method: 'PUT', body: { status: newStatus } });
+    toast(newStatus === 'active' ? '任务已启用' : '任务已暂停', 'ok');
+    viewTasks();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+};
+
+window.deleteTask = async function(taskId) {
+  if (!confirm('确定要删除这个定时任务吗？')) return;
+
+  try {
+    await api(`/stats/tasks/${taskId}`, { method: 'DELETE' });
+    toast('任务已删除', 'ok');
+    viewTasks();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+};
+
+/* ==================== 备份管理 ==================== */
+async function viewBackups() {
+  shell('backups', `
+    <main class="stats-page">
+      <header class="page-header">
+        <h1>${icon('archive')}备份管理</h1>
+        <p class="sub">导出、备份和恢复实例</p>
+      </header>
+      ${loader({ label: '加载备份列表' })}
+    </main>
+  `);
+
+  try {
+    const [backups, instances] = await Promise.all([
+      api('/stats/backups'),
+      api('/instances')
+    ]);
+
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('archive')}备份管理</h1>
+        <p class="sub">导出、备份和恢复实例</p>
+        <div class="page-actions">
+          <button class="btn" onclick="openImportDialog()">
+            ${icon('upload')}导入配置
+          </button>
+          <button class="btn primary" onclick="openExportDialog()">
+            ${icon('download')}导出实例
+          </button>
+        </div>
+      </header>
+
+      ${backups.backups.length > 0 ? `
+        <div class="backups-list">
+          ${backups.backups.map(backup => `
+            <div class="backup-card">
+              <div class="backup-header">
+                <div class="backup-icon">${icon('package')}</div>
+                <div class="backup-info">
+                  <strong>${esc(backup.name)}</strong>
+                  <div class="backup-meta">
+                    ${backup.instance_name ? `实例: ${esc(backup.instance_name)}` : '已删除的实例'}
+                    · ${bytes(backup.size_bytes)}
+                    · ${backup.type === 'manual' ? '手动备份' : '定时备份'}
+                  </div>
+                  <div class="backup-time">
+                    创建于 ${when(backup.created_at)}
+                    ${backup.expires_at ? `· 过期时间 ${when(backup.expires_at)}` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="backup-actions">
+                <a href="/api/stats/download/${backup.id}" class="btn small" download>
+                  ${icon('download')}下载
+                </a>
+                <button class="btn small danger" onclick="deleteBackup('${backup.id}')">
+                  ${icon('trash-2')}删除
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : `
+        <div class="empty-state">
+          ${icon('archive')}
+          <p>还没有备份</p>
+          <button class="btn primary" onclick="openExportDialog()">导出第一个实例</button>
+        </div>
+      `}
+
+      <!-- 导出对话框 -->
+      <div id="exportDialog" class="dialog" hidden>
+        <div class="dialog-content">
+          <div class="dialog-header">
+            <h2>导出实例</h2>
+            <button class="btn-icon" onclick="closeExportDialog()">
+              ${icon('x')}
+            </button>
+          </div>
+          <div class="dialog-body">
+            <div class="form-group">
+              <label for="exportInstance">选择要导出的实例</label>
+              <select id="exportInstance" class="form-control" required>
+                <option value="">选择实例</option>
+                ${instances.instances.map(inst => `
+                  <option value="${esc(inst.id)}">${esc(inst.name)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="export-info">
+              ${icon('info')}
+              <p>导出将包含实例的完整配置和数据卷内容，可能需要几分钟时间。</p>
+            </div>
+          </div>
+          <div class="dialog-footer">
+            <button type="button" class="btn" onclick="closeExportDialog()">取消</button>
+            <button type="button" class="btn primary" onclick="exportInstance()">开始导出</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 导入对话框 -->
+      <div id="importDialog" class="dialog" hidden>
+        <div class="dialog-content">
+          <div class="dialog-header">
+            <h2>导入配置</h2>
+            <button class="btn-icon" onclick="closeImportDialog()">
+              ${icon('x')}
+            </button>
+          </div>
+          <form id="importForm" class="dialog-body">
+            <div class="form-group">
+              <label for="importName">实例名称</label>
+              <input type="text" id="importName" class="form-control" placeholder="my-app" required />
+            </div>
+            <div class="form-group">
+              <label for="importYaml">docker-compose.yml 内容</label>
+              <textarea id="importYaml" class="form-control" rows="10" placeholder="version: '3.8'..." required></textarea>
+            </div>
+            <div class="import-info">
+              ${icon('info')}
+              <p>导入后需要手动创建实例，此功能仅解析配置。</p>
+            </div>
+          </form>
+          <div class="dialog-footer">
+            <button type="button" class="btn" onclick="closeImportDialog()">取消</button>
+            <button type="submit" form="importForm" class="btn primary">解析配置</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 导入表单提交
+    document.getElementById('importForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('importName').value;
+      const composeYaml = document.getElementById('importYaml').value;
+
+      try {
+        const result = await api('/stats/import', { method: 'POST', body: { composeYaml, name } });
+        toast('配置解析成功', 'ok');
+        closeImportDialog();
+
+        // 显示解析结果
+        alert(`解析成功！\n\n实例名: ${result.instance.name}\n镜像: ${result.instance.image}\n内存: ${result.instance.memoryMb} MB\nCPU: ${result.instance.cpus} 核\n端口: ${result.instance.ports} 个\n\n请前往"新建实例"页面手动创建。`);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+
+  } catch (err) {
+    app.querySelector('.stats-page').innerHTML = `
+      <header class="page-header">
+        <h1>${icon('archive')}备份管理</h1>
+      </header>
+      <div class="empty-state">
+        ${icon('circle-alert')}
+        <p>加载失败：${esc(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+window.openExportDialog = function() {
+  document.getElementById('exportDialog').hidden = false;
+};
+
+window.closeExportDialog = function() {
+  document.getElementById('exportDialog').hidden = true;
+};
+
+window.openImportDialog = function() {
+  document.getElementById('importDialog').hidden = false;
+};
+
+window.closeImportDialog = function() {
+  document.getElementById('importDialog').hidden = true;
+};
+
+window.exportInstance = async function() {
+  const instanceId = document.getElementById('exportInstance').value;
+  if (!instanceId) {
+    toast('请选择实例', 'err');
+    return;
+  }
+
+  try {
+    closeExportDialog();
+    toast('正在导出，请稍候...', 'ok');
+
+    const result = await api(`/stats/export/${instanceId}`, { method: 'POST' });
+    toast('导出成功！', 'ok');
+
+    // 刷新备份列表
+    viewBackups();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+};
+
+window.deleteBackup = async function(backupId) {
+  if (!confirm('确定要删除这个备份吗？此操作不可恢复。')) return;
+
+  try {
+    await api(`/stats/backups/${backupId}`, { method: 'DELETE' });
+    toast('备份已删除', 'ok');
+    viewBackups();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+};
 
 window.addEventListener('hashchange', route);
 boot();

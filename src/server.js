@@ -18,6 +18,8 @@ import * as lifespan from './lifespan.js';
 import * as diskguard from './diskguard.js';
 import * as guard from './guard.js';
 import * as cftunnel from './cftunnel.js';
+import * as statsCollector from './stats-collector.js';
+import * as scheduler from './scheduler.js';
 import { sweepOrphanDirs } from './sites.js';
 import { TERMS_VERSION, TERMS_UPDATED, TERMS_HTML } from './terms.js';
 import { PRIVACY_VERSION, PRIVACY_UPDATED, PRIVACY_HTML } from './privacy.js';
@@ -29,6 +31,7 @@ import { router as fileRoutes } from './routes/files.js';
 import { router as adminRoutes, announcementImageRouter } from './routes/admin.js';
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
+import { router as statsRoutes } from './routes/stats.js';
 import { seedBundles, listBundles } from './bundles.js';
 import { seedSettings, panelName, panelColor, panelDescription, captchaMode, guardAutoBan, maintenanceMode } from './settings.js';
 import { logger, requestLogger, logUnhandledErrors } from './logger.js';
@@ -410,6 +413,7 @@ app.use('/api/auth', attachUser, authRoutes);
 app.use('/api/instances', attachUser, instanceRoutes);
 app.use('/api/admin', attachUser, adminRoutes);
 app.use('/api/checkin', attachUser, checkinRoutes);
+app.use('/api/stats', attachUser, statsRoutes);
 
 // 404 页只从这一个出口送出：status 恒为 404；文件哪天丢了也只回纯文本兜底，
 // 不让 ENOENT 带着绝对路径穿到错误处理器再原样漏给访客。
@@ -574,6 +578,10 @@ announcements.sweepImages();
     await startupStep('diskguard', () => diskguard.start());
     // 危险操作预警：定期扫容器进程 + 各检测点已经在路由里挂好
     await startupStep('guard', () => guard.start());
+    // 资源统计采集
+    await startupStep('stats-collector', () => statsCollector.start());
+    // 定时任务调度器
+    await startupStep('scheduler', () => scheduler.start());
     // 面板重启后把断掉的 cloudflared 进程拉起来（看护循环在里面）
     logger.debug('startup.step.begin', { name: 'cloudflare-tunnel' });
     cftunnel.start();
@@ -593,6 +601,8 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     lifespan.stop();
     diskguard.stop();
     guard.stop();
+    statsCollector.stop();
+    scheduler.stop();
     notifications.stop();
     cftunnel.stopAll();
     server.close(() => process.exit(0));
