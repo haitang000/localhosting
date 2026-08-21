@@ -3,6 +3,7 @@ import { config, loopbackAddress } from './config.js';
 import { db, now } from './db.js';
 import * as dk from './docker.js';
 import { emit } from './events.js';
+import * as notifications from './notifications.js';
 
 /**
  * Idle sleep / wake on access.
@@ -247,6 +248,14 @@ export function wake(id, reason = '收到访问请求') {
       await dk.startContainer(row.container_id);
       const ready = await waitForPorts(tcpPorts(row), Date.now() + config.wakeTimeoutMs);
       db.prepare("UPDATE instances SET status = 'running', woke_at = ?, error = NULL WHERE id = ?").run(now(), id);
+      notifications.create(row.user_id, {
+        type: 'instance.woke',
+        priority: 'success',
+        title: '实例已唤醒',
+        message: `实例「${row.name}」已从闲时休眠中唤醒。`,
+        href: `#/i/${row.id}`,
+        dedupeKey: `instance.woke:${row.id}:${Date.now()}`,
+      });
       s.traffic = null;
       if (!ready) {
         emit(id, '容器已启动，但端口在超时时间内没有就绪', 'error');
@@ -256,6 +265,14 @@ export function wake(id, reason = '收到访问请求') {
       emit(id, '已唤醒 ✅', 'done');
       flushParked(s, true);
     } catch (err) {
+      notifications.create(row.user_id, {
+        type: 'instance.wake_failed',
+        priority: 'warning',
+        title: '实例唤醒失败',
+        message: `实例「${row.name}」唤醒失败：${err.message}`,
+        href: `#/i/${row.id}`,
+        dedupeKey: `instance.wake_failed:${row.id}:${new Date().toISOString().slice(0, 10)}`,
+      });
       emit(id, `唤醒失败：${err.message}`, 'error');
       flushParked(s, false);
       // Put the parked listeners back so the next visitor can trigger a retry.

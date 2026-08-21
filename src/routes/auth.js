@@ -22,6 +22,7 @@ import { config } from '../config.js';
 import { TERMS_VERSION } from '../terms.js';
 import { PRIVACY_VERSION } from '../privacy.js';
 import * as announcements from '../announcements.js';
+import * as notifications from '../notifications.js';
 import { logger } from '../logger.js';
 
 export const router = Router();
@@ -267,14 +268,34 @@ router.get('/me', (req, res) => {
     req.user.role === 'admin'
       ? db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE status = 'open'").get().c
       : 0;
+  const notificationCount = notifications.unreadCount(req.user.id);
   res.json({
     user: publicUser(req.user),
     usage: usage(req.user.id),
     pendingCount,
     alertCount,
+    notificationCount,
     onboarding: publicOnboarding(req.user),
     announcements: announcements.listActive(),
   });
+});
+
+/** Recent and paginated user-owned notifications. */
+router.get('/notifications', requireAuth, (req, res) => {
+  res.json(notifications.listForUser(req.user.id, {
+    page: req.query.page,
+    limit: req.query.limit,
+  }));
+});
+
+router.post('/notifications/:id/read', requireAuth, (req, res) => {
+  if (!notifications.markRead(req.user.id, req.params.id)) return res.status(404).json({ error: '通知不存在' });
+  res.json({ ok: true, unread: notifications.unreadCount(req.user.id) });
+});
+
+router.post('/notifications/read-all', requireAuth, (req, res) => {
+  const marked = notifications.markAllRead(req.user.id);
+  res.json({ ok: true, marked, unread: 0 });
 });
 
 /** The vouchers the panel handed to this account (the sign-up gift lives here). */

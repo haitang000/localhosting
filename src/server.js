@@ -22,6 +22,7 @@ import { sweepOrphanDirs } from './sites.js';
 import { TERMS_VERSION, TERMS_UPDATED, TERMS_HTML } from './terms.js';
 import { PRIVACY_VERSION, PRIVACY_UPDATED, PRIVACY_HTML } from './privacy.js';
 import * as announcements from './announcements.js';
+import * as notifications from './notifications.js';
 import { router as authRoutes } from './routes/auth.js';
 import { router as instanceRoutes } from './routes/instances.js';
 import { router as fileRoutes } from './routes/files.js';
@@ -545,7 +546,8 @@ const server = app.listen(config.port, config.host, async () => {
       console.warn('    面板端口在公网上是什么地址，就把它填进 .env 的 PANEL_PUBLIC_URL\n');
     }
   }
-  announcements.sweepImages();
+announcements.sweepImages();
+  notifications.start();
   try {
     const v = await dk.ping();
     console.log(`  Docker 已连接：${v.Version} (${v.Os}/${v.Arch})\n`);
@@ -591,6 +593,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     lifespan.stop();
     diskguard.stop();
     guard.stop();
+    notifications.stop();
     cftunnel.stopAll();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();

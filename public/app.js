@@ -2,7 +2,7 @@ import { icon } from './icons.js';
 import { openTextEditor } from './editor.js';
 
 const app = document.getElementById('app');
-const state = { user: null, usage: null, cfg: null, templates: [], onboarding: null, disabled: null, announcements: [] };
+const state = { user: null, usage: null, cfg: null, templates: [], onboarding: null, disabled: null, announcements: [], notificationCount: 0 };
 let timers = [];
 
 /* ---------------- utils ---------------- */
@@ -134,6 +134,7 @@ async function syncMe() {
   state.usage = me.usage;
   state.pendingCount = me.pendingCount ?? 0;
   state.alertCount = me.alertCount ?? 0;
+  state.notificationCount = me.notificationCount ?? 0;
   state.onboarding = me.onboarding ?? null;
   state.announcements = me.announcements ?? [];
   celebrateOnboarding();
@@ -1393,6 +1394,67 @@ function openAnnouncementLightbox(img) {
   requestAnimationFrame(() => annLightbox.classList.add('open'));
 }
 
+/* ---------------- notifications ---------------- */
+const notificationIcon = (priority) => ({ success: 'circle-check', warning: 'circle-alert', critical: 'triangle-alert' }[priority] || 'info');
+const notificationHref = (href) => (typeof href === 'string' && href.startsWith('#/') ? href : '#/notifications');
+
+function notificationRowHtml(n) {
+  return `<a class="notification-row ${n.read ? 'read' : 'unread'}" href="${esc(notificationHref(n.href))}" data-notification="${n.id}">
+    <span class="notification-icon ${esc(n.priority)}">${icon(notificationIcon(n.priority))}</span>
+    <span class="notification-copy"><b>${esc(n.title)}</b><span>${esc(n.message)}</span><small>${when(n.createdAt)}</small></span>
+    ${!n.read ? '<i class="notification-dot" aria-label="未读"></i>' : ''}
+  </a>`;
+}
+
+function updateNotificationBadge() {
+  const button = document.getElementById('notification-toggle');
+  if (!button) return;
+  let badge = button.querySelector('.notification-count');
+  if (!state.notificationCount) return badge?.remove();
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'notification-count';
+    button.append(badge);
+  }
+  badge.textContent = state.notificationCount > 99 ? '99+' : String(state.notificationCount);
+}
+
+async function markNotificationRead(id) {
+  try {
+    const r = await api(`/auth/notifications/${id}/read`, { method: 'POST' });
+    state.notificationCount = r.unread ?? 0;
+    updateNotificationBadge();
+  } catch (err) {
+    if (err.status !== 404) throw err;
+  }
+}
+
+function wireNotificationLinks(root = app) {
+  root.querySelectorAll('[data-notification]').forEach((el) => {
+    el.addEventListener('click', () => markNotificationRead(el.dataset.notification).catch(() => {}), { once: true });
+  });
+}
+
+async function toggleNotificationMenu() {
+  const menu = document.getElementById('notification-menu');
+  if (!menu) return;
+  const opening = menu.hidden;
+  menu.hidden = !opening;
+  if (!opening) return;
+  menu.innerHTML = `<div class="notification-loading">${loader({ inline: true })}</div>`;
+  try {
+    const { notifications } = await api('/auth/notifications?limit=5');
+    menu.innerHTML = `<div class="notification-menu-head"><b>通知</b><a href="#/notifications">查看全部</a></div>${
+      notifications.length
+        ? `<div class="notification-list compact">${notifications.map(notificationRowHtml).join('')}</div>`
+        : `<div class="notification-empty">${icon('inbox')}暂时没有通知</div>`
+    }`;
+    wireNotificationLinks(menu);
+  } catch (err) {
+    menu.innerHTML = `<div class="notification-empty">${icon('circle-alert')}加载失败：${esc(err.message)}</div>`;
+  }
+}
+
 function shell(active, inner) {
   const admin = state.user.role === 'admin';
   app.className = '';
@@ -1438,6 +1500,12 @@ function shell(active, inner) {
       </nav>
       <div class="spacer"></div>
       <div class="whoami">
+        <div class="notification-wrap">
+          <button class="small ghost notification-toggle" id="notification-toggle" aria-label="查看通知" aria-haspopup="true" aria-expanded="false">${icon('bell')}${
+            state.notificationCount ? `<span class="notification-count">${state.notificationCount > 99 ? '99+' : state.notificationCount}</span>` : ''
+          }</button>
+          <div class="notification-menu" id="notification-menu" hidden></div>
+        </div>
         <div class="avatar">${esc(state.user.username.slice(0, 2).toUpperCase())}</div>
         <span>${esc(state.user.username)}${admin ? ' · 管理员' : ''}</span>
         <button class="small ghost" id="logout">${icon('log-out')}退出</button>
@@ -1451,6 +1519,11 @@ function shell(active, inner) {
     obSeen = null; // the next account starts its own diff, not this one's
     clearTimers();
     renderAuth();
+  };
+  const notificationToggle = document.getElementById('notification-toggle');
+  notificationToggle.onclick = async () => {
+    await toggleNotificationMenu();
+    notificationToggle.setAttribute('aria-expanded', String(!document.getElementById('notification-menu').hidden));
   };
   revealActive('header.top nav.tabs', 'a.active');
   wireOnboardingBar();
@@ -6074,6 +6147,47 @@ function viewAccount() {
     .catch(() => {});
 }
 
+/* ---------------- notifications ---------------- */
+async function viewNotifications() {
+  shell('notifications', loader());
+  let page = 1;
+
+  const paint = async () => {
+    const data = await api(`/auth/notifications?page=${page}&limit=20`);
+    state.notificationCount = data.unread ?? 0;
+    shell(
+      'notifications',
+      `<div class="page-title"><span class="page-ico">${icon('bell')}</span><h1>通知</h1>
+         <span class="sub">${data.unread ? `${data.unread} 条未读` : '全部已读'}</span>
+         <div class="spacer"></div>
+         ${data.unread ? `<button class="small" id="read-all">${icon('check-check')}全部标为已读</button>` : ''}</div>
+       <div class="card notification-page">
+         ${
+           data.notifications.length
+             ? `<div class="notification-list">${data.notifications.map(notificationRowHtml).join('')}</div>
+                ${data.pages > 1 ? `<div class="notification-pagination">
+                  <button class="small" data-notification-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>${icon('arrow-left')}上一页</button>
+                  <span class="sub">第 ${page} / ${data.pages} 页</span>
+                  <button class="small" data-notification-page="${page + 1}" ${page >= data.pages ? 'disabled' : ''}>下一页${icon('arrow-right')}</button>
+                </div>` : ''}`
+             : `<div class="empty"><div class="big">${icon('inbox')}</div>暂时没有通知。实例审批、部署结果和到期提醒会显示在这里。</div>`
+         }
+       </div>`
+    );
+    wireNotificationLinks();
+    document.getElementById('read-all')?.addEventListener('click', async () => {
+      const r = await api('/auth/notifications/read-all', { method: 'POST' });
+      state.notificationCount = r.unread ?? 0;
+      await paint();
+    });
+    app.querySelectorAll('[data-notification-page]').forEach((b) => {
+      b.onclick = () => { page = Number(b.dataset.notificationPage); paint().catch((e) => toast(e.message, 'err')); };
+    });
+  };
+
+  await paint().catch((e) => toast(e.message, 'err'));
+}
+
 /* ---------------- static sites (drag & drop) ---------------- */
 const JUNK = /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
 const junky = (p) => JUNK.test(p) || p.split('/').some((s) => s.startsWith('.')) || p.includes('node_modules/');
@@ -7837,6 +7951,8 @@ function route() {
         return state.user.role === 'admin' ? viewAdmin() : viewInstances();
       case 'account':
         return viewAccount();
+      case 'notifications':
+        return viewNotifications();
       case 'instances':
         return viewInstances();
       default:

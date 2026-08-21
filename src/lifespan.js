@@ -6,6 +6,7 @@ import * as sleeper from './sleeper.js';
 import * as term from './console.js';
 import * as cftunnel from './cftunnel.js';
 import { releasePorts } from './ports.js';
+import * as notifications from './notifications.js';
 
 /**
  * Instance lifespan, expiry, grace period, renewal and purge.
@@ -86,6 +87,14 @@ export async function archive(row, reason = '有效期已到') {
     now(),
     row.id
   );
+  notifications.create(row.user_id, {
+    type: 'instance.archived',
+    priority: 'warning',
+    title: '实例已封存',
+    message: `实例「${row.name}」${reason}，容器已停止；可在保留期内下载数据或续期。`,
+    href: `#/i/${row.id}`,
+    dedupeKey: `instance.archived:${row.id}:${row.expires_at || row.archived_at || now()}`,
+  });
   audit({ username: '系统' }, 'instance.archive', row.name, reason);
   const retention = config.archiveRetentionDays;
   const msg = retention
@@ -135,6 +144,21 @@ export async function purge(row) {
 // them yet. A pending row also has no expires_at at all — the clock only starts
 // at approval — so this is really just a belt for the creating window.
 async function tick() {
+  const soon = new Date(Date.now() + 3 * 86400_000).toISOString();
+  const upcoming = db.prepare(
+    `SELECT * FROM instances WHERE expires_at IS NOT NULL AND expires_at > ? AND expires_at <= ?
+     AND status NOT IN ('archived', 'rejected', 'pending')`
+  ).all(now(), soon);
+  for (const row of upcoming) {
+    notifications.create(row.user_id, {
+      type: 'instance.expiring',
+      priority: 'warning',
+      title: '实例即将到期',
+      message: `实例「${row.name}」将于 ${row.expires_at.slice(0, 10)} 到期，及时续期可避免被封存。`,
+      href: `#/i/${row.id}`,
+      dedupeKey: `instance.expiring:${row.id}:${row.expires_at}`,
+    });
+  }
   const rows = db
     .prepare(
       `SELECT * FROM instances

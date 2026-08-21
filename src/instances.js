@@ -14,6 +14,7 @@ import * as diskguard from './diskguard.js';
 import * as guard from './guard.js';
 import * as term from './console.js';
 import * as cftunnel from './cftunnel.js';
+import * as notifications from './notifications.js';
 
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
@@ -551,6 +552,14 @@ export async function approveInstance(row, admin, { addresses = {}, note, autoTu
     row.name,
     `属主 ${ownerName(row.user_id)}${tunnel ? `，自动 Cloudflare 隧道 ${tunnel.hostnames.join('、')}` : ''}`
   );
+  notifications.create(row.user_id, {
+    type: 'instance.approved',
+    priority: 'success',
+    title: '实例申请已通过',
+    message: `实例「${row.name}」已通过审批，正在创建容器。`,
+    href: `#/i/${row.id}`,
+    dedupeKey: `instance.approved:${row.id}`,
+  });
   emit(row.id, `管理员 ${admin.username} 已放行，开始创建容器`, 'log');
   if (expiresAt) {
     emit(row.id, `有效期 ${row.life_days} 天，到期（${expiresAt.slice(0, 10)}）后会自动封存`, 'log');
@@ -572,6 +581,14 @@ export async function approveInstance(row, admin, { addresses = {}, note, autoTu
     volumePaths: row.volume_paths_json ? JSON.parse(row.volume_paths_json) : [],
   }).catch((err) => {
     setStatus(row.id, 'error', err.message);
+    notifications.create(row.user_id, {
+      type: 'instance.create_failed',
+      priority: 'critical',
+      title: '实例创建失败',
+      message: `实例「${row.name}」创建失败：${err.message}`,
+      href: `#/i/${row.id}`,
+      dedupeKey: `instance.create_failed:${row.id}:${row.reviewed_at || now()}`,
+    });
     emit(row.id, `创建失败：${err.message}`, 'error');
     if (config.refundInviteOnFailure && row.invite_code) {
       refund(row.invite_code);
@@ -604,6 +621,14 @@ export function rejectInstance(row, admin, reason) {
        bundle_id = NULL, ports_json = '[]', reviewed_by = ?, reviewed_at = ? WHERE id = ?`
   ).run(String(reason || '未说明原因').slice(0, 500), admin.username, now(), row.id);
   audit(admin, 'instance.reject', row.name, reason);
+  notifications.create(row.user_id, {
+    type: 'instance.rejected',
+    priority: 'warning',
+    title: '实例申请被驳回',
+    message: `实例「${row.name}」的申请被驳回：${reason || '未说明原因'}`,
+    href: `#/i/${row.id}`,
+    dedupeKey: `instance.rejected:${row.id}`,
+  });
   emit(row.id, `申请被驳回：${reason || '未说明原因'}`, 'error');
 }
 
@@ -660,6 +685,14 @@ async function provisionInner(spec) {
   emit(spec.id, '启动中');
   await container.start();
   setStatus(spec.id, 'running');
+  notifications.create(spec.user.id, {
+    type: 'instance.created',
+    priority: 'success',
+    title: '实例已上线',
+    message: `实例「${spec.name}」已创建并启动，可以开始使用了。`,
+    href: `#/i/${spec.id}`,
+    dedupeKey: `instance.created:${spec.id}`,
+  });
   const fresh = db.prepare('SELECT sleep_enabled, idle_minutes FROM instances WHERE id = ?').get(spec.id);
   if (fresh?.sleep_enabled) {
     emit(spec.id, `闲时休眠已开启：${fresh.idle_minutes || config.idleMinutes} 分钟无流量就停止，有访问再自动启动`);
@@ -1047,6 +1080,14 @@ export async function reinstallInstance(row, user) {
     volumePaths: row.volume_paths_json ? JSON.parse(row.volume_paths_json) : [],
   }).catch((err) => {
     setStatus(row.id, 'error', err.message);
+    notifications.create(row.user_id, {
+      type: 'instance.create_failed',
+      priority: 'critical',
+      title: '实例创建失败',
+      message: `实例「${row.name}」创建失败：${err.message}`,
+      href: `#/i/${row.id}`,
+      dedupeKey: `instance.create_failed:${row.id}:${row.reviewed_at || now()}`,
+    });
     emit(row.id, `重装失败：${err.message}`, 'error');
   });
 

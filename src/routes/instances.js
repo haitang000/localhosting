@@ -9,6 +9,7 @@ import * as term from '../console.js';
 import * as sleeper from '../sleeper.js';
 import * as guard from '../guard.js';
 import { history, subscribe } from '../events.js';
+import * as notifications from '../notifications.js';
 
 export const router = Router();
 router.use(requireAuth);
@@ -29,7 +30,19 @@ router.get('/:id', async (req, res) => {
 
 router.post('/:id/action/:what', async (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
-  await svc.action(row, req.params.what, req.user);
+  try {
+    await svc.action(row, req.params.what, req.user);
+  } catch (err) {
+    notifications.create(row.user_id, {
+      type: 'instance.action_failed',
+      priority: 'warning',
+      title: '实例操作失败',
+      message: `实例「${row.name}」${req.params.what} 操作失败：${err.message}`,
+      href: `#/i/${row.id}`,
+      dedupeKey: `instance.action_failed:${row.id}:${req.params.what}:${new Date().toISOString().slice(0, 10)}`,
+    });
+    throw err;
+  }
   res.json({ instance: await svc.serialize(svc.getInstance(req.params.id, req.user)) });
 });
 

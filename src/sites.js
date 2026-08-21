@@ -7,6 +7,7 @@ import { db, now, audit } from './db.js';
 import { HttpError } from './instances.js';
 import { getInvite, inviteProblem, consume, refund } from './invites.js';
 import { spendPoints, refundPoints, balanceOf } from './points.js';
+import * as notifications from './notifications.js';
 
 /**
  * Static sites: the user drops an .html file (or a whole folder) on the panel
@@ -227,6 +228,14 @@ export async function createSite(user, body) {
     await fsp.rm(siteDir(id), { recursive: true, force: true }).catch(() => {});
     if (invite) refund(invite.code);
     if (paidPoints) refundPoints(user.id, paidPoints, 'site.create_failed', slug);
+    notifications.create(user.id, {
+      type: 'site.create_failed',
+      priority: 'critical',
+      title: '静态站点发布失败',
+      message: `站点「${slug}」发布失败：${err.message}`,
+      href: '#/sites',
+      dedupeKey: `site.create_failed:${id}`,
+    });
     throw err;
   }
 
@@ -238,6 +247,14 @@ export async function createSite(user, body) {
       invite ? ` (券 ${invite.code})` : paidPoints ? ` (${paidPoints} 积分)` : ''
     }`
   );
+  notifications.create(user.id, {
+    type: 'site.created',
+    priority: 'success',
+    title: '静态站点已上线',
+    message: `站点「${slug}」已发布，可以访问 ${siteAddress(slug)}。`,
+    href: '#/sites',
+    dedupeKey: `site.created:${id}`,
+  });
   return serialize(db.prepare('SELECT * FROM sites WHERE id = ?').get(id));
 }
 
@@ -254,6 +271,14 @@ export async function redeploySite(row, user, body) {
     row.id
   );
   audit(user, 'site.redeploy', row.slug, `${files.length} 个文件 / ${total} 字节`);
+  notifications.create(user.id, {
+    type: 'site.redeployed',
+    priority: 'success',
+    title: '静态站点已更新',
+    message: `站点「${row.slug}」内容已更新。`,
+    href: '#/sites',
+    dedupeKey: `site.redeployed:${row.id}:${now()}`,
+  });
   return serialize(db.prepare('SELECT * FROM sites WHERE id = ?').get(row.id));
 }
 

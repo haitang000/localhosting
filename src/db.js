@@ -151,6 +151,21 @@ CREATE TABLE IF NOT EXISTS announcements (
   updated_at  TEXT NOT NULL
 );
 
+-- 用户站内通知：业务状态提醒与公告分开，通知只属于一个账号。
+CREATE TABLE IF NOT EXISTS notifications (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,
+  priority    TEXT NOT NULL DEFAULT 'info',
+  title       TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  href        TEXT,
+  dedupe_key  TEXT NOT NULL,
+  read_at     TEXT,
+  created_at  TEXT NOT NULL,
+  UNIQUE (user_id, dedupe_key)
+);
+
 -- 积分套餐（管理后台「套餐」页维护）：内存 + CPU + 硬盘打包价。
 -- 首次启动用 POINTS_BUNDLES 播种，之后以这里的记录为准，改环境变量不再生效。
 -- days：用它建出来的实例能活几天（NULL = 跟随全局 POINTS_INSTANCE_DAYS，0 = 永久）；
@@ -209,6 +224,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(status, id DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_instance ON alerts(instance_id, status);
 CREATE INDEX IF NOT EXISTS idx_point_txns_user ON point_txns(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, read_at, id DESC);
 `);
 
 // Lightweight forward migrations for databases created by earlier versions.
