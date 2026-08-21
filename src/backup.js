@@ -149,7 +149,8 @@ export async function exportInstance(instanceId, userId, type = 'manual') {
     // 4. 打包成 tar.gz
     logger.debug('backup.export.compress', { instanceId, tempDir, backupPath });
 
-    const { default: tar } = await import('tar');
+    // tar@7 exposes its API as named ESM exports (there is no default export).
+    const tar = await import('tar');
     await tar.c(
       {
         gzip: true,
