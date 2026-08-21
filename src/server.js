@@ -30,6 +30,7 @@ import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
 import { seedSettings, panelName, panelColor, panelDescription, captchaMode, maintenanceMode } from './settings.js';
 import { logger, requestLogger, logUnhandledErrors } from './logger.js';
+import { runStartupSelfCheck } from './self-check.js';
 
 seedBundles();
 seedSettings();
@@ -447,6 +448,18 @@ app.use((err, _req, res, _next) => {
 
 const boot = bootstrapAdmin();
 preloadStaticAssets();
+
+// 在监听端口前完成本地环境自检。自检失败只阻止明显不安全/不可写的
+// 环境继续启动；Docker 属于可选运行时依赖，仍由下方启动流程单独探测。
+const startupSelfCheck = runStartupSelfCheck();
+if (!startupSelfCheck.ok) {
+  logger.error('server.selfcheck.blocked', {
+    failed: startupSelfCheck.checks.filter((item) => !item.ok).map((item) => item.name),
+  });
+  console.error('  ✖ 启动自检未通过，请修复上面的错误后重试。');
+  process.exit(1);
+}
+console.log(`  ✓ 启动自检通过（${startupSelfCheck.checks.length} 项）`);
 
 // ── 首次启动检测 ──
 const envPath = path.join(ROOT, '.env');
