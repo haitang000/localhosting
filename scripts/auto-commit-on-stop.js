@@ -42,9 +42,14 @@ try {
   // Do not fold a developer's hand-picked staged files into an automatic commit.
   if (!clean(['diff', '--cached', '--quiet', '--ignore-submodules', '--'])) process.exit(0);
   const untracked = runGit(['ls-files', '--others', '--exclude-standard', '-z'])
-    .split('\0')
-    .filter(Boolean)
-    .filter((file) => !file.startsWith('.claude/') && !file.startsWith('.codex/') && !path.basename(file).startsWith('.tmp-'));
+  .split('\0')
+  .filter(Boolean)
+  .filter(
+    (file) =>
+      !file.startsWith('.claude/') &&
+      !file.startsWith('.codex/') &&
+      !file.split('/').some((part) => part.startsWith('.tmp-'))
+  );
   const hasTrackedChanges = !clean(['diff', '--quiet', '--ignore-submodules', '--']);
   if (!hasTrackedChanges && !untracked.length) process.exit(0);
 
