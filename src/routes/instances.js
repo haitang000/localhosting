@@ -137,7 +137,7 @@ router.post('/:id/console', async (req, res) => {
 /** Keystrokes / a whole command line going to the shell's stdin. */
 router.post('/:id/console/input', (req, res) => {
   const row = svc.getInstance(req.params.id, req.user);
-  // 危险操作预警：敲进容器的命令过一遍特征库。只记录不拦截，也绝不
+  // 危险操作预警：敲进容器的命令过一遍特征库。是否自动封禁由安全设置决定，且绝不
   // 因为预警系统自己出问题影响控制台 —— try/catch 吞掉一切。
   try {
     guard.scanText(row, req.body?.data, 'console');

@@ -12,7 +12,7 @@ import { poolStats } from '../ports.js';
 import * as announcements from '../announcements.js';
 import * as guard from '../guard.js';
 import { listBundles, createBundle, updateBundle, deleteBundle } from '../bundles.js';
-import { panelName, panelColor, panelDescription, setSetting, captchaMode, maintenanceMode } from '../settings.js';
+import { panelName, panelColor, panelDescription, setSetting, captchaMode, guardAutoBan, maintenanceMode } from '../settings.js';
 import * as cftunnel from '../cftunnel.js';
 
 export const router = Router();
@@ -535,12 +535,13 @@ router.get('/settings', (req, res) => {
     panelColor: panelColor(),
     panelDescription: panelDescription(),
     captchaMode: captchaMode(),
+    guardAutoBan: guardAutoBan(),
   });
 });
 
 router.patch('/settings', (req, res) => {
-  const { panelName: name, panelColor: color, captchaMode: mode, panelDescription: description } = req.body || {};
-  if (name === undefined && color === undefined && mode === undefined && description === undefined) {
+  const { panelName: name, panelColor: color, captchaMode: mode, guardAutoBan: autoBan, panelDescription: description } = req.body || {};
+  if (name === undefined && color === undefined && mode === undefined && autoBan === undefined && description === undefined) {
     return res.status(400).json({ error: '没有可保存的字段' });
   }
   if (name !== undefined) {
@@ -562,13 +563,19 @@ router.patch('/settings', (req, res) => {
     }
     setSetting('captcha_mode', mode);
   }
+  if (autoBan !== undefined) {
+    if (typeof autoBan !== 'boolean') return res.status(400).json({ error: '自动封禁开关无效' });
+    setSetting('guard_auto_ban', autoBan ? '1' : '0');
+  }
   if (description !== undefined) {
     if (typeof description !== 'string') return res.status(400).json({ error: '站点描述无效' });
     setSetting('panel_description', description.trim().slice(0, 200));
   }
   audit(
     req.user,
-    'admin.settings_brand',
+    (mode !== undefined || autoBan !== undefined) && name === undefined && color === undefined && description === undefined
+      ? 'admin.settings_security'
+      : 'admin.settings_brand',
     name ?? color ?? mode ?? description,
     JSON.stringify(req.body)
   );
@@ -577,6 +584,7 @@ router.patch('/settings', (req, res) => {
     panelColor: panelColor(),
     panelDescription: panelDescription(),
     captchaMode: captchaMode(),
+    guardAutoBan: guardAutoBan(),
   });
 });
 

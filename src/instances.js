@@ -384,8 +384,7 @@ export async function createInstance(user, body) {
   }
 
   // 危险操作预警：创建参数（镜像 / 命令 / 环境变量 / 备注）过一遍特征库。
-  // 只记录不拦截 —— 待审批的申请本来就要管理员过目，预警页多一条线索而已；
-  // 管理员自己开的实例跳过了队列，这条预警就是唯一会留下痕迹的地方。
+  // 待审批的申请保留预警供管理员裁决；已运行的实例由预警设置决定是否自动封禁。
   guard.scanCreate({ id, user_id: user.id, name }, { image, cmd, env, volumePath: body.volumePath, note: body.note });
 
   audit(

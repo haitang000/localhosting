@@ -13,6 +13,7 @@ export function seedSettings() {
     panel_color: config.panelColor,
     panel_description: config.panelDescription,
     captcha_mode: config.captchaStrict ? 'strict' : 'normal',
+    guard_auto_ban: config.guardAutoBan ? '1' : '0',
     maintenance_mode: config.maintenanceMode ? '1' : '0',
   };
   const get = db.prepare('SELECT value FROM settings WHERE key = ?');
@@ -62,3 +63,8 @@ export function captchaMode() {
 }
 
 export const captchaStrict = () => captchaMode() === 'strict';
+
+/** 危险预警自动封禁：开启时新命中的可运行实例会自动封禁并结案。 */
+export function guardAutoBan() {
+  return getSetting('guard_auto_ban', config.guardAutoBan ? '1' : '0') === '1';
+}

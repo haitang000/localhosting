@@ -62,7 +62,7 @@ router.put('/:id/files/content', editJson, async (req, res) => {
 
 router.post('/:id/files/upload', uploadJson, async (req, res) => {
   const row = instance(req);
-  // 危险操作预警：只看文件名（矿机二进制常常原名上传）。只记录不拦截，
+  // 危险操作预警：只看文件名（矿机二进制常常原名上传）。是否自动封禁由安全设置决定，
   // 预警系统自己的问题也不该挡住一次正常上传。
   try {
     const names = (req.body?.files || []).map((f) => f?.name).filter(Boolean).join('\n');

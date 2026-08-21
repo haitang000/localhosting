@@ -6487,7 +6487,12 @@ async function viewAdmin() {
       const { alerts, openCount } = await api(`/admin/alerts?status=${alertFilter}`);
       state.alertCount = openCount;
       const srcText = { process: '进程扫描', console: '控制台输入', create: '创建参数', upload: '上传文件名' };
-      const actionText = { ignore: '已忽略', ban_instance: '已封禁实例', ban_user: '已封禁用户' };
+      const actionText = {
+        ignore: '已忽略',
+        ban_instance: '已封禁实例',
+        ban_user: '已封禁用户',
+        auto_ban_instance: '预警已自动封禁实例',
+      };
       const alertCard = (a) => `<div class="card" style="margin-bottom:14px${a.status === 'resolved' ? ';opacity:.72' : ''}">
         <div class="row" style="align-items:flex-start;gap:14px;flex-wrap:wrap">
           <div style="flex:1;min-width:0">
@@ -6526,7 +6531,7 @@ async function viewAdmin() {
         </div>
         ${
           alertFilter === 'open'
-            ? `<div class="hint" style="margin-bottom:14px">${icon('info')}面板会持续扫描运行中容器的进程、控制台输入、创建参数和上传文件名，命中挖矿等危险特征时记在这里。<b>只记录不打扰用户</b> —— 由你裁决：封禁实例（停容器、禁启动，保留数据和证据）、封禁用户（停用账号并停止其全部实例）、或误报就忽略。</div>`
+            ? `<div class="hint" style="margin-bottom:14px">${icon('info')}面板会持续扫描运行中容器的进程、控制台输入、创建参数和上传文件名，命中挖矿等危险特征时记在这里。开启「安全 → 预警自动封禁」时，运行中的涉事实例会自动停止并封禁；关闭后由你裁决：封禁实例、封禁用户或忽略。</div>`
             : ''
         }
         ${
@@ -6602,20 +6607,6 @@ async function viewAdmin() {
         <div class="err" id="panel-name-err"></div>
       </div>
       <div class="card" style="margin-top:16px">
-        ${cat('shield', '验证码严格程度', { flush: true })}
-        <label class="field" style="margin:0;max-width:460px"><span>${icon('key-round')}登录 / 注册 / 签到时的验证强度</span>
-          <select id="captcha-mode">
-            <option value="normal" ${state.cfg?.captchaMode === 'strict' ? '' : 'selected'}>普通 —— 行为检测，拿不准时才出图片验证码</option>
-            <option value="strict" ${state.cfg?.captchaMode === 'strict' ? 'selected' : ''}>严格 —— 每次都要求完成图片验证码</option>
-          </select>
-          <div class="hint">严格模式更防脚本和批量注册，但每次验证都要把图片转正，体验稍重。改完立即生效，不用重启。</div>
-        </label>
-        <div class="row" style="margin-top:10px;align-items:center;gap:10px">
-          <button class="primary" id="captcha-mode-save">${icon('save')}保存</button>
-          <div class="err" id="captcha-mode-err"></div>
-        </div>
-      </div>
-      <div class="card" style="margin-top:16px">
         ${cat('settings', '对外访问配置', { flush: true })}
         <div class="table-wrap"><table>
           <tr><td>${icon('globe')}PUBLIC_HOST</td><td class="mono">${esc(
@@ -6632,6 +6623,39 @@ async function viewAdmin() {
         <div class="hint">${icon('info')}改这些值请编辑 .env 后重启面板。内网穿透只需把 ${o.ports.start}-${
           o.ports.end
         } 整段端口转发出去。</div>
+      </div>`;
+    } else if (tab === 'security') {
+      body = `<div class="card">
+        ${cat('shield', '验证码严格程度', { flush: true })}
+        <p class="sub" style="margin:0 0 14px">集中管理登录、注册和签到共用的验证码策略。严格程度越高，越能阻挡自动化操作，但正常用户需要完成更多验证。</p>
+        <label class="field" style="margin:0;max-width:560px"><span>${icon('key-round')}验证强度</span>
+          <select id="captcha-mode">
+            <option value="normal" ${state.cfg?.captchaMode === 'strict' ? '' : 'selected'}>普通 —— 行为检测，拿不准时才出图片验证码</option>
+            <option value="strict" ${state.cfg?.captchaMode === 'strict' ? 'selected' : ''}>严格 —— 每次都要求完成图片验证码</option>
+          </select>
+          <div class="hint">严格模式更防脚本和批量注册，但每次验证都要把图片转正。修改后立即生效，不用重启。</div>
+        </label>
+        <div class="row" style="margin-top:10px;align-items:center;gap:10px">
+          <button class="primary" id="captcha-mode-save">${icon('save')}保存</button>
+          <div class="err" id="captcha-mode-err"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        ${cat('triangle-alert', '预警自动封禁', { flush: true })}
+        <label class="row" style="gap:10px;align-items:flex-start">
+          <span class="switch" style="margin-top:3px"><input type="checkbox" id="guard-auto-ban" ${
+            state.cfg?.guardAutoBan === false ? '' : 'checked'
+          } /><span class="knob"></span></span>
+          <span><b>命中危险预警时自动封禁实例</b><br /><span class="sub">默认开启。新命中高风险规则的运行中实例会被停止并封禁，预警自动结案；容器和数据会保留，管理员可在实例详情中解封。待审批的申请仍保留预警，等待人工裁决。</span></span>
+        </label>
+        <div class="row" style="margin-top:10px;align-items:center;gap:10px">
+          <button class="primary" id="guard-auto-ban-save">${icon('save')}保存</button>
+          <div class="err" id="guard-auto-ban-err"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        ${cat('info', '安全说明', { flush: true })}
+        <div class="hint">验证码设置只影响验证策略，不会关闭限速、行为分析、工作量证明或图片挑战。若要完全关闭验证码，请通过服务器环境变量 <code>CAPTCHA_ENABLED=false</code> 配置并重启。</div>
       </div>`;
     } else if (tab === 'users') {
       const { users } = await api('/admin/users');
@@ -6991,13 +7015,14 @@ async function viewAdmin() {
     }
 
     // Built after the body so the pending badge reflects what was just loaded.
-    const nav = ['pending', 'alerts', 'overview', 'users', 'invites', 'bundles', 'instances', 'sites', 'announcements', 'audit']
+    const nav = ['pending', 'alerts', 'overview', 'security', 'users', 'invites', 'bundles', 'instances', 'sites', 'announcements', 'audit']
       .filter((t) => t !== 'sites' || state.cfg?.sites?.enabled)
       .map((t) => {
         const { label, ico } = {
           pending: { label: '待审批', ico: 'inbox' },
           alerts: { label: '预警', ico: 'triangle-alert' },
           overview: { label: '总览', ico: 'gauge' },
+          security: { label: '安全', ico: 'shield' },
           users: { label: '用户', ico: 'users' },
           invites: { label: '邀请码', ico: 'ticket' },
           bundles: { label: '套餐', ico: 'layers' },
@@ -7322,6 +7347,26 @@ function wireAdmin(refresh) {
         });
         state.cfg = { ...(state.cfg || {}), captchaMode: r.captchaMode };
         toast(`验证码已切换为${r.captchaMode === 'strict' ? '严格' : '普通'}模式`, 'ok');
+        refresh();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    };
+  }
+
+  // 预警自动封禁：默认开启；关闭后只保留预警，交给管理员在预警页人工处置。
+  const guardAutoBanSave = document.getElementById('guard-auto-ban-save');
+  if (guardAutoBanSave) {
+    guardAutoBanSave.onclick = async () => {
+      const errEl = document.getElementById('guard-auto-ban-err');
+      errEl.textContent = '';
+      try {
+        const r = await api('/admin/settings', {
+          method: 'PATCH',
+          body: { guardAutoBan: document.getElementById('guard-auto-ban').checked },
+        });
+        state.cfg = { ...(state.cfg || {}), guardAutoBan: r.guardAutoBan };
+        toast(`预警自动封禁已${r.guardAutoBan ? '开启' : '关闭'}`, 'ok');
         refresh();
       } catch (err) {
         errEl.textContent = err.message;

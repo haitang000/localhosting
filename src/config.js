@@ -261,10 +261,12 @@ export const config = {
   // --- 危险操作预警（src/guard.js）---
   // 定期扫描运行中容器的进程命令行（docker top），加上控制台输入、创建
   // 参数、上传文件名的实时匹配，命中挖矿等特征就在管理后台记一条预警。
-  // 只预警不拦截：管理员在后台选择封禁实例 / 封禁用户 / 忽略。
+  // 默认自动封禁运行中的涉事实例；关闭后管理员可手动封禁实例 / 用户或忽略。
   // GUARD_CHECK_SECONDS 最小 15 秒，别把 docker top 打成热点。
   guardEnabled: bool(process.env.GUARD_ENABLED, true),
   guardCheckSeconds: num(process.env.GUARD_CHECK_SECONDS, 60),
+  // 命中高风险特征后自动封禁涉事实例；管理员可在「安全」页即时关闭。
+  guardAutoBan: bool(process.env.GUARD_AUTO_BAN, true),
   // Registries a custom image may come from. Empty entry "" allows bare
   // Docker Hub names (nginx, user/app). Comma separated.
   allowedRegistries: (process.env.ALLOWED_REGISTRIES ?? ',docker.io,ghcr.io,registry.hub.docker.com,quay.io')

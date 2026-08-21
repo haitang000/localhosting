@@ -28,7 +28,7 @@ import { router as adminRoutes, announcementImageRouter } from './routes/admin.j
 import { router as siteRoutes, serveRouter as siteServeRoutes } from './routes/sites.js';
 import { router as checkinRoutes } from './routes/checkin.js';
 import { seedBundles, listBundles } from './bundles.js';
-import { seedSettings, panelName, panelColor, panelDescription, captchaMode, maintenanceMode } from './settings.js';
+import { seedSettings, panelName, panelColor, panelDescription, captchaMode, guardAutoBan, maintenanceMode } from './settings.js';
 import { logger, requestLogger, logUnhandledErrors } from './logger.js';
 import { runStartupSelfCheck } from './self-check.js';
 
@@ -220,6 +220,7 @@ app.get('/api/config', (_req, res) => {
     panelColor: panelColor(),
     panelDescription: panelDescription(),
     captchaMode: captchaMode(),
+    guardAutoBan: guardAutoBan(),
     maintenance: maintenanceMode(),
     publicHost: config.publicHost || null,
     publicScheme: config.publicScheme,
