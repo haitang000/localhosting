@@ -108,56 +108,186 @@ const CAT_ICONS = {
 const icon = (name) =>
   `<svg class="ld-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 
-/** 特性卡片。sitesEnabled 决定第二张卡是「拖放网页」还是顶替它的「日志监控」。 */
-function featureCards({ templateTotal, categories, sitesEnabled }) {
-  const catCount = categories.length;
+/* ── 模板 logo 砖 ── */
+function logoTile({ name, iconFile }) {
+  return `<div class="ld-logo-tile" title="${esc(name)}"><img src="/template-icons/${esc(iconFile)}" alt="" width="36" height="36" loading="lazy" decoding="async" onerror="this.parentElement.hidden=true" /></div>`;
+}
+
+/** 把 logo 均分到 n 行，空行丢掉（模板很少时不留空白轨道）。 */
+function logoRows(logos, n) {
+  const rows = Array.from({ length: n }, () => []);
+  logos.forEach((item, i) => rows[i % n].push(item));
+  return rows.filter((row) => row.length);
+}
+
+function logoStage(logos) {
+  if (!logos.length) return '';
+  const rows = logoRows(logos, 3)
+    .map(
+      (row, i) => `<div class="ld-marquee" data-dir="${i === 1 ? '-1' : '1'}">
+              <div class="ld-marquee-track">
+                <div class="ld-marquee-set">${row.map(logoTile).join('')}</div>
+              </div>
+            </div>`
+    )
+    .join('\n            ');
+  return `<div class="ld-split-visual">
+            <div class="ld-logo-stage" aria-hidden="true">
+            ${rows}
+            </div>
+          </div>`;
+}
+
+/* ── 特性分栏里的示意面板：纯装饰，给文案一个「长什么样」的锚点 ── */
+function mockChrome(label) {
+  return `<div class="ld-mock-chrome"><span class="ld-mock-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${esc(label)}</span></div>`;
+}
+
+function mockSleep() {
+  return `<div class="ld-mock ld-mock-inst" aria-hidden="true">
+              ${mockChrome('实例 · jellyfin')}
+              <div class="ld-mock-inst-row">
+                <img class="ld-mock-avatar" src="/template-icons/jellyfin.svg" alt="" width="28" height="28" />
+                <div><b>jellyfin</b><small>媒体服务器</small></div>
+                <span class="ld-mock-pill" data-states="休眠中,唤醒中,运行中">休眠中</span>
+              </div>
+              <div class="ld-mock-meters">
+                <div><span>CPU</span><i class="ld-mock-bar"><b style="width:28%"></b></i></div>
+                <div><span>内存</span><i class="ld-mock-bar"><b style="width:46%"></b></i></div>
+              </div>
+            </div>`;
+}
+
+function mockTerm() {
+  return `<div class="ld-mock ld-mock-term" aria-hidden="true">
+              ${mockChrome('终端 · nginx')}
+              <pre class="ld-term-body"><span class="ld-term-line">$ nginx -t</span>
+<span class="ld-term-out">nginx: the configuration file /etc/nginx/nginx.conf syntax is ok</span>
+<span class="ld-term-line">$ ls /usr/share/nginx/html</span>
+<span class="ld-term-out">index.html  assets/</span>
+<span class="ld-term-line">$ <i class="ld-caret"></i></span></pre>
+            </div>`;
+}
+
+function mockDrop() {
+  return `<div class="ld-mock ld-mock-drop" aria-hidden="true">
+              ${mockChrome('站点 · 新建')}
+              <div class="ld-drop-zone">${icon('upload')}<b>放开以上线</b><small>index.html 或整个站点目录</small></div>
+              <ul class="ld-drop-files">
+                <li>${icon('layout')}index.html</li>
+                <li>${icon('folder')}assets/</li>
+              </ul>
+            </div>`;
+}
+
+function mockFiles() {
+  return `<div class="ld-mock ld-mock-files" aria-hidden="true">
+              ${mockChrome('文件 · nginx')}
+              <ul class="ld-file-tree">
+                <li>${icon('folder')}<span>html</span></li>
+                <li class="on">${icon('code')}<span>nginx.conf</span></li>
+                <li>${icon('folder')}<span>logs</span></li>
+                <li>${icon('layout')}<span>mime.types</span></li>
+              </ul>
+            </div>`;
+}
+
+function splitArticle({ kicker, icon: ic, title, body, visual, flip }) {
+  return `<article class="ld-split${flip ? ' flip' : ''}">
+            <div class="ld-split-visual">${visual}</div>
+            <div class="ld-split-copy">
+              <p class="ld-kicker">${icon(ic)}${esc(kicker)}</p>
+              <h3>${esc(title)}</h3>
+              <p class="ld-lead">${esc(body)}</p>
+            </div>
+          </article>`;
+}
+
+/**
+ * 特性区：三列图文分栏讲清楚「用起来长什么样」，剩下的收成小卡。
+ * sitesEnabled 决定第三栏是拖放网页还是文件管理，对应小卡也跟着换。
+ */
+function featureBlock({ sitesEnabled }) {
+  const sleep = splitArticle({
+    kicker: '资源调度',
+    icon: 'moon',
+    title: '闲时休眠，访问即醒',
+    body: '无访问时容器自动停止，请求到来后数秒内自动恢复，冷启动几乎无感知 —— 闲置的资源由此归还给全体用户。',
+    visual: mockSleep(),
+    flip: false,
+  });
+  const term = splitArticle({
+    kicker: '在线运维',
+    icon: 'terminal',
+    title: '浏览器里的容器终端',
+    body: '网页版 docker exec -it：支持彩色输出、vim / htop 等全屏程序、Tab 补全与断线自动重连，移动端另提供 Esc / Ctrl 快捷键栏。',
+    visual: mockTerm(),
+    flip: true,
+  });
+  const third = sitesEnabled
+    ? splitArticle({
+        kicker: '静态站点',
+        icon: 'upload',
+        title: '拖放上线静态网页',
+        body: '将 index.html 或整站目录拖入面板即可发布：无需创建容器、不占用端口、无需等待审批，单个站点仅按 0.1 核 · 32 MB 计入用量。',
+        visual: mockDrop(),
+        flip: false,
+      })
+    : splitArticle({
+        kicker: '文件',
+        icon: 'folder',
+        title: '容器文件管理',
+        body: '在线浏览目录、编辑配置文件、上传文件，或将整个目录打包下载 —— 无需 docker cp，镜像内也无需预装 tar / vim。',
+        visual: mockFiles(),
+        flip: false,
+      });
+
   const cards = [
-    {
-      icon: 'grid',
-      title: `${templateTotal} 个模板，${catCount} 个大类`,
-      body: 'Nginx、WordPress、code-server、PostgreSQL、Redis、Grafana、Jellyfin、Minecraft 等常用服务开箱即用，填写参数即可完成部署；模板之外的自定义镜像可凭资源券或账号权限启用。',
-    },
     sitesEnabled
       ? {
-          icon: 'upload',
-          title: '拖放上线静态网页',
-          body: '将 index.html 或整站目录拖入面板即可发布：无需创建容器、不占用端口、无需等待审批，单个站点仅按 0.1 核 · 32 MB 计入用量。',
+          icon: 'folder',
+          title: '容器文件管理',
+          body: '浏览目录、编辑配置、上传或打包下载，镜像内无需预装 tar / vim。',
         }
       : {
           icon: 'activity',
           title: '实时日志与资源监控',
-          body: '实例的实时日志流与 CPU / 内存用量曲线均可直接在网页中查看，无需通过 SSH 登录服务器执行 docker logs。',
+          body: '日志流与 CPU / 内存曲线直接在网页中查看，不必再 SSH 上去跑 docker logs。',
         },
-    {
-      icon: 'moon',
-      title: '闲时休眠，访问即醒',
-      body: '无访问时容器自动停止，请求到来后数秒内自动恢复，冷启动几乎无感知 —— 闲置的资源由此归还给全体用户。',
-    },
-    {
-      icon: 'terminal',
-      title: '浏览器里的容器终端',
-      body: '网页版 docker exec -it：支持彩色输出、vim / htop 等全屏程序、Tab 补全与断线自动重连，移动端另提供 Esc / Ctrl 快捷键栏。',
-    },
-    {
-      icon: 'folder',
-      title: '容器文件管理',
-      body: '在线浏览目录、编辑配置文件、上传文件，或将整个目录打包下载 —— 无需 docker cp，镜像内也无需预装 tar / vim。',
-    },
     {
       icon: 'ticket',
       title: '资源额度，凭券管理',
-      body: '管理员签发资源券时即锁定内存 / CPU / 端口额度，用户不可更改；开放注册配有自研验证码（行为分析 + 图片回正 + 工作量证明），可拦截自动化注册。',
+      body: '资源券签发时即锁定内存 / CPU / 端口；开放注册配有自研验证码，可拦截自动化注册。',
     },
+    sitesEnabled
+      ? {
+          icon: 'activity',
+          title: '实时日志与资源监控',
+          body: '日志流与 CPU / 内存曲线直接在网页中查看，不必再 SSH 上去跑 docker logs。',
+        }
+      : {
+          icon: 'wrench',
+          title: '自定义镜像',
+          body: '模板之外的镜像可凭资源券或账号权限启用，规格由管理员在签发时锁定。',
+        },
   ];
-  return cards
+  const grid = cards
     .map((c) => `<div class="ld-card">${icon(c.icon)}<h3>${esc(c.title)}</h3><p>${esc(c.body)}</p></div>`)
     .join('\n          ');
+
+  return `${sleep}
+          ${term}
+          ${third}
+          <div class="ld-grid">
+          ${grid}
+          </div>`;
 }
 
 /**
  * 渲染 landing 页。
  * - categories：[{ label, count }]，由调用方从模板库现数；
  * - stars：模板库里挑几个叫得上名字的展示（调用方按固定 id 列表取 name）；
+ * - logos：[{ name, iconFile }]，模板区左侧轮播用，招牌排在最前；
  * - 其余字段与 seo.renderIndex 同源（settings 表 + config）。
  */
 export function renderLanding({
@@ -172,6 +302,7 @@ export function renderLanding({
   templateTotal,
   categories,
   stars,
+  logos = [],
 }) {
   const title = `${name} · 容器面板`;
   const desc = description || `${name} —— 云容器托管面板。`;
@@ -200,7 +331,11 @@ export function renderLanding({
 
   const cats = categories
     .map((c) => `<span class="ld-chip">${icon(CAT_ICONS[c.label] || 'grid')}${esc(c.label)}<b>${c.count}</b></span>`)
-    .join('\n      ');
+    .join('\n              ');
+  const starLead = stars.length
+    ? `${esc(stars.slice(0, 8).join('、'))} 等常用服务开箱即用，填写参数即可完成部署。`
+    : '常用服务开箱即用，填写参数即可完成部署。';
+  const tplVisual = logoStage(logos);
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -232,8 +367,8 @@ export function renderLanding({
       <div class="ld-wrap ld-nav-in">
         <a class="ld-brand" href="/">${dotMark(name, { id: '-nav' })}<b>${esc(name)}</b></a>
         <nav aria-label="页面导航">
-          <a href="#features">特性</a>
           <a href="#templates">模板</a>
+          <a href="#features">特性</a>
           <a href="#flow">流程</a>
           <a href="#faq">常见问题</a>
         </nav>
@@ -260,29 +395,35 @@ export function renderLanding({
         </div>
       </section>
 
-      <section id="features" class="ld-section">
-        <div class="ld-wrap">
-          <h2>面板功能一览</h2>
-          <span class="ld-h2-bar" aria-hidden="true"></span>
-          <div class="ld-grid">
-          ${featureCards({ templateTotal, categories, sitesEnabled })}
-          </div>
-        </div>
-      </section>
-
       <section id="templates" class="ld-section alt">
         <div class="ld-wrap">
-          <h2><span class="ld-num" data-count="${templateTotal}">${templateTotal}</span> 个模板开箱即用</h2>
-          <span class="ld-h2-bar" aria-hidden="true"></span>
-          <div class="ld-cats">
-      ${cats}
-          </div>
-          ${stars.length ? `<p class="ld-names">${esc(stars.join(' · '))} 等</p>` : ''}
-          <p class="ld-note">需要运行模板之外的镜像？自定义镜像可凭资源券或账号权限启用，请联系管理员开通。</p>
+          <article class="ld-split${logos.length ? '' : ' copy-only'}">
+          ${tplVisual}
+            <div class="ld-split-copy">
+              <p class="ld-kicker">${icon('layout-template')}模板库</p>
+              <h2><span class="ld-num" data-count="${templateTotal}">${templateTotal}</span> 个模板开箱即用</h2>
+              <span class="ld-h2-bar" aria-hidden="true"></span>
+              <p class="ld-lead">${starLead}</p>
+              <div class="ld-cats">
+              ${cats}
+              </div>
+              <p class="ld-note">需要运行模板之外的镜像？自定义镜像可凭资源券或账号权限启用，请联系管理员开通。</p>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section id="flow" class="ld-section">
+      <section id="features" class="ld-section">
+        <div class="ld-wrap">
+          <header class="ld-section-head">
+            <h2>面板功能一览</h2>
+            <span class="ld-h2-bar" aria-hidden="true"></span>
+          </header>
+          ${featureBlock({ sitesEnabled })}
+        </div>
+      </section>
+
+      <section id="flow" class="ld-section alt">
         <div class="ld-wrap">
           <h2>从注册到上线</h2>
           <span class="ld-h2-bar" aria-hidden="true"></span>
@@ -303,7 +444,7 @@ export function renderLanding({
         </div>
       </section>
 
-      <section id="faq" class="ld-section alt">
+      <section id="faq" class="ld-section">
         <div class="ld-wrap">
           <h2>常见问题</h2>
           <span class="ld-h2-bar" aria-hidden="true"></span>

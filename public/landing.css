@@ -237,6 +237,9 @@
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+.ld-section-head {
+  margin-bottom: 8px;
+}
 /* 标题下的主题色点缀条：GSAP 滚动入场时从中间划开（landing-scroll.js）；
    不跑 JS 时就是一根安静的静态色条 */
 .ld-h2-bar {
@@ -255,6 +258,306 @@
 .ld-num {
   color: var(--primary-strong);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── 左右分栏：左视觉 / 右文案；.flip 对调，copy-only 只留文案 ── */
+.ld-split {
+  display: grid;
+  grid-template-columns: 1.08fr 0.92fr;
+  gap: 48px 56px;
+  align-items: center;
+}
+.ld-split + .ld-split {
+  margin-top: 72px;
+}
+.ld-split + .ld-grid {
+  margin-top: 64px;
+}
+.ld-split.flip .ld-split-visual {
+  order: 2;
+}
+.ld-split.flip .ld-split-copy {
+  order: 1;
+}
+.ld-split.copy-only {
+  grid-template-columns: 1fr;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.ld-split-visual,
+.ld-split-copy {
+  min-width: 0;
+}
+.ld-split-copy h2,
+.ld-split-copy h3 {
+  text-align: left;
+  margin: 0 0 12px;
+}
+.ld-split-copy h2 {
+  font-size: clamp(22px, 4.4vw, 28px);
+}
+.ld-split-copy h3 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.ld-split-copy .ld-h2-bar {
+  margin: 0 0 22px;
+}
+.ld-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  color: var(--primary-strong);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.ld-kicker .ld-ic {
+  width: 15px;
+  height: 15px;
+}
+.ld-lead {
+  margin: 0 0 20px;
+  color: var(--default-500);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* ── 模板 logo 舞台：三行横条，超出裁切；JS 把每行接成无限履带 ── */
+.ld-logo-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 0;
+  overflow: hidden;
+  border-radius: calc(var(--radius-lg) + 4px);
+  background: var(--content1);
+  box-shadow: var(--shadow-sm);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.ld-marquee {
+  display: block;
+  overflow: hidden;
+}
+.ld-marquee-track,
+.ld-marquee-set {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+}
+.ld-logo-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  background: var(--content2);
+}
+.ld-logo-tile img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+@media (hover: hover) and (pointer: fine) {
+  .ld-logo-tile {
+    transition: transform var(--fast);
+  }
+  .ld-logo-tile:hover {
+    transform: scale(1.07);
+  }
+}
+
+/* ── 示意面板：特性分栏左侧的「产品长什么样」 ── */
+.ld-mock {
+  border-radius: calc(var(--radius-lg) + 2px);
+  background: var(--content1);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.ld-mock-chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--content2);
+  color: var(--default-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ld-mock-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.ld-mock-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--default-300);
+}
+.ld-mock-inst-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 16px 8px;
+}
+.ld-mock-avatar {
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--content2);
+  object-fit: contain;
+}
+.ld-mock-inst-row b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.ld-mock-inst-row small {
+  color: var(--default-400);
+  font-size: 12px;
+}
+.ld-mock-pill {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--default-200);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ld-mock-pill[data-state="唤醒中"] {
+  background: var(--warning-flat);
+  color: var(--warning);
+}
+.ld-mock-pill[data-state="运行中"] {
+  background: var(--success-flat);
+  color: var(--success);
+}
+.ld-mock-meters {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px 18px;
+}
+.ld-mock-meters > div {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  gap: 10px;
+  color: var(--default-400);
+  font-size: 12px;
+}
+.ld-mock-bar {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--default-200);
+  overflow: hidden;
+}
+.ld-mock-bar > b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transform-origin: left center;
+}
+.ld-mock-term {
+  background: #0c0e12;
+  color: #d4d4d8;
+}
+.ld-mock-term .ld-mock-chrome {
+  background: #14171e;
+  color: #a1a1aa;
+}
+.ld-mock-term .ld-mock-dots i:nth-child(1) { background: #f31260; }
+.ld-mock-term .ld-mock-dots i:nth-child(2) { background: #f5a524; }
+.ld-mock-term .ld-mock-dots i:nth-child(3) { background: #17c964; }
+.ld-term-body {
+  margin: 0;
+  padding: 16px 18px 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.ld-term-line {
+  display: block;
+  color: #e4e4e7;
+}
+.ld-term-out {
+  display: block;
+  color: #71717a;
+}
+.ld-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: color-mix(in srgb, var(--primary) 70%, white);
+  animation: ld-caret 1s steps(1) infinite;
+}
+@keyframes ld-caret {
+  50% { opacity: 0; }
+}
+.ld-drop-zone {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 16px 16px 12px;
+  padding: 28px 16px;
+  border: 1.5px dashed var(--default-300);
+  border-radius: var(--radius-lg);
+  color: var(--default-500);
+  text-align: center;
+}
+.ld-drop-zone .ld-ic {
+  width: 22px;
+  height: 22px;
+  color: var(--primary-strong);
+}
+.ld-drop-zone b {
+  color: var(--foreground);
+  font-size: 14px;
+}
+.ld-drop-zone small {
+  font-size: 12px;
+}
+.ld-drop-files,
+.ld-file-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px 16px;
+  display: grid;
+  gap: 6px;
+}
+.ld-drop-files li,
+.ld-file-tree li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--content2);
+  color: var(--default-600);
+  font-size: 13px;
+}
+.ld-file-tree li.on {
+  background: var(--primary-flat);
+  color: var(--primary-strong);
+}
+.ld-drop-files .ld-ic,
+.ld-file-tree .ld-ic {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 /* ── 特性卡片 ── */
@@ -365,6 +668,13 @@
   text-align: center;
   color: var(--default-400);
   font-size: 13px;
+}
+.ld-split-copy .ld-cats {
+  justify-content: flex-start;
+}
+.ld-split-copy .ld-note {
+  margin-top: 16px;
+  text-align: left;
 }
 
 /* ── 流程 ── */
@@ -577,6 +887,21 @@
   .ld-steps {
     grid-template-columns: repeat(2, 1fr);
   }
+  .ld-split,
+  .ld-split.flip {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .ld-split.flip .ld-split-visual,
+  .ld-split.flip .ld-split-copy {
+    order: unset;
+  }
+  .ld-split-visual {
+    order: -1;
+  }
+  .ld-split + .ld-split {
+    margin-top: 48px;
+  }
 }
 @media (max-width: 640px) {
   /* 导航只留品牌和 CTA；锚点在手机上本来就是要滑过去的内容 */
@@ -624,9 +949,30 @@
 }
 
 /* 访客要求减少动效：点阵标记的波纹与组装都停（点本来就在，只是不闪了）；
-   粒子 logo 同理 —— 页尾脚本只画一层静态粒子，不做物理 */
+   粒子 logo 同理 —— 页尾脚本只画一层静态粒子，不做物理。
+   模板轮播退回折行墙，光标也不再闪。 */
 @media (prefers-reduced-motion: reduce) {
   .ld .dotmark circle {
     animation: none;
+  }
+  .ld-caret {
+    animation: none;
+  }
+  .ld-logo-stage {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .ld-marquee,
+  .ld-marquee-track,
+  .ld-marquee-set {
+    display: contents;
+  }
+  .ld-marquee-set[data-clone],
+  .ld-marquee-set .ld-logo-tile:nth-child(n + 9) {
+    display: none;
   }
 }

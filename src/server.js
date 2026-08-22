@@ -355,9 +355,9 @@ const renderPanelShell = (res) => {
   );
 };
 
-// landing 模板区点名的「招牌」：从模板库里按 id 取名字，模板下架了就自然消失。
+// landing 模板区点名的「招牌」：按 id 取名字和 logo。排在轮播最前，下架了就自然消失。
 const LANDING_STAR_TEMPLATES = [
-  'nginx', 'wordpress', 'halo', 'code-server', 'jupyter', 'postgresql',
+  'nginx', 'wordpress', 'halo', 'code-server', 'jupyter', 'postgres',
   'mysql', 'redis', 'grafana', 'jellyfin', 'open-webui', 'minecraft',
 ];
 
@@ -367,6 +367,14 @@ app.get('/', attachUser, (req, res) => {
   const tpl = publicTemplates();
   const byCat = new Map();
   for (const t of tpl) byCat.set(t.category, (byCat.get(t.category) || 0) + 1);
+  const byId = new Map(tpl.map((t) => [t.id, t]));
+  const starSet = new Set(LANDING_STAR_TEMPLATES);
+  const toLogo = (t) => t?.iconFile ? { name: t.name, iconFile: t.iconFile } : null;
+  // 招牌在前，其余有图标的跟在后面 —— 轮播一露面就是认得出来的服务。
+  const logos = [
+    ...LANDING_STAR_TEMPLATES.map((id) => toLogo(byId.get(id))),
+    ...tpl.filter((t) => t.iconFile && !starSet.has(t.id)).map(toLogo),
+  ].filter(Boolean);
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html');
   res.send(
@@ -381,7 +389,8 @@ app.get('/', attachUser, (req, res) => {
       sitesEnabled: config.sitesEnabled,
       templateTotal: tpl.length,
       categories: [...byCat.entries()].map(([label, count]) => ({ label, count })),
-      stars: LANDING_STAR_TEMPLATES.map((id) => tpl.find((t) => t.id === id)?.name).filter(Boolean),
+      stars: LANDING_STAR_TEMPLATES.map((id) => byId.get(id)?.name).filter(Boolean),
+      logos,
     })
   );
 });

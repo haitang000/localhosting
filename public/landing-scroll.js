@@ -9,10 +9,13 @@
 
    各节的性格刻意错开，不共用一套「淡入上移」：
    - 分节标题：标题逐字浮起（中文按字切 span）+ 色条从中间划开
+   - 左右分栏：视觉从外侧滑入，文案错峰上浮（h2 已由分节标题接手，不重复）
+   - 模板 logo：三行履带用 wrap 折回 x，悬停降速，离屏暂停
    - 特性卡片：batch 批次入场；落定后 clearProps，悬停提升交给 CSS，
      指针追光（--mx/--my）与图标弹跳在这里接线
    - 模板节：标题里的模板总数滚动计数；chips 随机次序 back.out 弹出，
      每个 chip 里的分类数也数一遍
+   - 示意面板：休眠状态轮换、终端行错峰浮起、用量条从 0 长出
    - 流程四步：整列错峰上移，序号 back.out(2.2) 逐个弹，
      卡片间的连接线 scaleX 划出
    - FAQ：逐条浮起；点击展开/收起走 GSAP 高度动画（原生 details 兜底）
@@ -92,6 +95,164 @@
     if (bar) {
       tl.from(bar, { scaleX: 0, duration: 0.6, ease: 'power2.out' }, '-=0.35');
     }
+  });
+
+  /* ── 左右分栏：视觉从外侧滑入，文案（不含已有入场的 h2 / 色条）错峰上浮 ── */
+  toArray('.ld-split').forEach(function (split) {
+    var vis = split.querySelector('.ld-split-visual');
+    var copy = split.querySelector('.ld-split-copy');
+    var flip = split.classList.contains('flip');
+    var tl = gsap.timeline({
+      scrollTrigger: { trigger: split, start: 'top 78%', once: true },
+    });
+    if (vis) {
+      tl.from(vis, {
+        x: flip ? 28 : -28, autoAlpha: 0, duration: 0.8, ease: 'power3.out',
+      }, 0);
+    }
+    if (copy) {
+      var bits = toArray(copy.children).filter(function (el) {
+        return !el.matches('h2, .ld-h2-bar');
+      });
+      if (bits.length) {
+        tl.from(bits, {
+          y: 16, autoAlpha: 0, duration: 0.6, ease: 'power3.out', stagger: 0.07,
+        }, 0.1);
+      }
+    }
+  });
+
+  /* ── 模板 logo 无限履带 ──
+     每行克隆一份，gsap.utils.wrap 把 x 折回，看起来接得上。
+     行不够宽就先把原套再铺一遍；悬停降到 0.22，离屏暂停。 */
+  var stage = document.querySelector('.ld-logo-stage');
+  if (stage) {
+    var wrapX = gsap.utils.wrap;
+    var unitize = gsap.utils.unitize;
+    var rows = toArray(stage.querySelectorAll('.ld-marquee'));
+    var tweens = [];
+
+    rows.forEach(function (row) {
+      var set = row.querySelector('.ld-marquee-set');
+      if (set && !set.dataset.src) set.dataset.src = set.innerHTML;
+    });
+
+    function mountRow(row) {
+      var track = row.querySelector('.ld-marquee-track');
+      var set = row.querySelector('.ld-marquee-set');
+      if (!track || !set || !set.dataset.src) return null;
+      toArray(track.querySelectorAll('[data-clone]')).forEach(function (n) { n.remove(); });
+      set.innerHTML = set.dataset.src;
+      var guard = 0;
+      while (set.offsetWidth < row.offsetWidth + 80 && guard++ < 6) {
+        set.insertAdjacentHTML('beforeend', set.dataset.src);
+      }
+      var clone = set.cloneNode(true);
+      clone.setAttribute('data-clone', '1');
+      clone.setAttribute('aria-hidden', 'true');
+      track.appendChild(clone);
+      var dir = parseFloat(row.getAttribute('data-dir') || '1');
+      var gap = parseFloat(getComputedStyle(track).gap) || 10;
+      var dist = set.offsetWidth + gap;
+      if (dist < 16) return null;
+      var dur = Math.max(18, dist / 42);
+      var vars = {
+        duration: dur,
+        ease: 'none',
+        repeat: -1,
+        modifiers: { x: unitize(wrapX(-dist, 0)) },
+      };
+      return dir < 0
+        ? gsap.fromTo(track, { x: -dist }, Object.assign({ x: 0 }, vars))
+        : gsap.fromTo(track, { x: 0 }, Object.assign({ x: -dist }, vars));
+    }
+
+    function applyScale(scale) {
+      tweens.forEach(function (t) { if (t) t.timeScale(scale); });
+    }
+
+    function rebuild() {
+      tweens.forEach(function (t) { if (t) t.kill(); });
+      tweens = rows.map(mountRow);
+    }
+    rebuild();
+
+    if (finePointer) {
+      stage.addEventListener('pointerenter', function () { applyScale(0.22); });
+      stage.addEventListener('pointerleave', function () { applyScale(1); });
+    }
+
+    var resizeTimer = 0;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(rebuild, 180);
+    });
+
+    ST.create({
+      trigger: stage,
+      start: 'top bottom',
+      end: 'bottom top',
+      onToggle: function (self) {
+        tweens.forEach(function (t) {
+          if (!t) return;
+          if (self.isActive) t.resume();
+          else t.pause();
+        });
+      },
+    });
+  }
+
+  /* ── 示意面板：休眠状态轮换、终端行错峰、用量条长出 ── */
+  toArray('.ld-mock-pill[data-states]').forEach(function (pill) {
+    var states = pill.getAttribute('data-states').split(',').map(function (s) {
+      return s.trim();
+    }).filter(Boolean);
+    if (states.length < 2) return;
+    var i = 0;
+    var loop;
+    function tick() {
+      i = (i + 1) % states.length;
+      gsap.to(pill, {
+        autoAlpha: 0, y: -5, duration: 0.18, ease: 'power2.in',
+        onComplete: function () {
+          pill.textContent = states[i];
+          pill.setAttribute('data-state', states[i]);
+          gsap.fromTo(pill, { autoAlpha: 0, y: 5 }, {
+            autoAlpha: 1, y: 0, duration: 0.22, ease: 'power2.out',
+          });
+        },
+      });
+      loop = gsap.delayedCall(2.4, tick);
+    }
+    ST.create({
+      trigger: pill.closest('.ld-mock') || pill,
+      start: 'top 85%',
+      end: 'bottom top',
+      onEnter: function () { if (!loop) loop = gsap.delayedCall(1.6, tick); },
+      onEnterBack: function () { if (!loop) loop = gsap.delayedCall(0.4, tick); },
+      onLeave: function () { if (loop) { loop.kill(); loop = null; } },
+      onLeaveBack: function () { if (loop) { loop.kill(); loop = null; } },
+    });
+  });
+
+  var term = document.querySelector('.ld-mock-term');
+  if (term) {
+    var lines = toArray(term.querySelectorAll('.ld-term-line, .ld-term-out'));
+    if (lines.length) {
+      gsap.from(lines, {
+        autoAlpha: 0, x: 8, duration: 0.4, ease: 'power2.out', stagger: 0.16,
+        scrollTrigger: { trigger: term, start: 'top 80%', once: true },
+      });
+    }
+  }
+
+  toArray('.ld-mock-bar > b').forEach(function (bar) {
+    gsap.from(bar, {
+      scaleX: 0,
+      duration: 0.9,
+      ease: 'power2.out',
+      scrollTrigger: { trigger: bar, start: 'top 92%', once: true },
+    });
   });
 
   /* ── 特性卡片：批次入场，同批错峰；落定 clearProps 把 transform 交还 CSS 悬停 ── */
