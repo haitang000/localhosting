@@ -865,23 +865,6 @@ textarea.form-control {
 }
 
 @media (max-width: 640px) {
-  /* The shared header now has seven or more destinations. Let the strip scroll
-     between stable touch targets instead of squeezing labels into unreadable
-     columns on narrow phones. */
-  nav.tabs:has(> a:nth-child(7)) {
-    justify-content: flex-start;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  nav.tabs:has(> a:nth-child(7))::-webkit-scrollbar {
-    display: none;
-  }
-
-  nav.tabs:has(> a:nth-child(7)) a {
-    flex: 0 0 56px;
-  }
-
   .stats-page .page-header {
     grid-template-columns: 1fr;
     gap: 6px;

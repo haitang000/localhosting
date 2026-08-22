@@ -87,18 +87,27 @@
   border-bottom: 1px solid var(--divider);
 }
 .ld-nav-in {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 28px;
-  height: 60px;
+  min-height: 60px;
+  padding-top: env(safe-area-inset-top);
 }
 .ld-brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   font-size: 15.5px;
   font-weight: 600;
   color: var(--foreground);
+}
+.ld-brand b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ld-brand:hover {
   text-decoration: none;
@@ -129,6 +138,37 @@
 .ld-nav .ld-btn {
   padding: 7px 14px;
   font-size: 13.5px;
+}
+.ld-nav-toggle,
+.ld-nav-scrim,
+.ld-nav-close {
+  display: none;
+}
+.ld-nav-toggle {
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--default-500);
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast), transform var(--fast);
+}
+.ld-nav-toggle:hover {
+  background: var(--default-100);
+  color: var(--foreground);
+}
+.ld-nav-toggle:active {
+  transform: scale(0.97);
+}
+.ld-nav-toggle .ld-ic {
+  width: 22px;
+  height: 22px;
 }
 
 /* ── hero：左文右标的两栏，深色底上的品牌色粒子 logo（物理在页尾脚本里） ── */
@@ -881,6 +921,82 @@
 
 /* ── 响应式 ── */
 @media (max-width: 900px) {
+  .ld-wrap {
+    padding: 0 20px;
+  }
+  .ld-nav-in {
+    gap: 12px;
+  }
+  .ld-nav-toggle {
+    display: inline-flex;
+  }
+  .ld-nav nav {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    width: min(300px, 100%);
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-left: 0;
+    padding: 8px;
+    background: var(--content1);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top right;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 220ms var(--ease-out),
+      transform 220ms var(--ease-out),
+      visibility 220ms;
+  }
+  .ld-nav.is-open nav {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .ld-nav nav a {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .ld-nav.is-open .ld-nav-bars {
+    display: none;
+  }
+  .ld-nav.is-open .ld-nav-close {
+    display: contents;
+  }
+  .ld-nav-scrim {
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 100dvh;
+    z-index: 1;
+    background: var(--overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms var(--ease-out);
+  }
+  .ld-nav.is-open .ld-nav-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  body.ld-nav-lock {
+    overflow: hidden;
+  }
+  .ld-nav-cta {
+    margin-left: auto;
+  }
   .ld-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -904,17 +1020,20 @@
   }
 }
 @media (max-width: 640px) {
-  /* 导航只留品牌和 CTA；锚点在手机上本来就是要滑过去的内容 */
-  .ld-nav nav {
-    display: none;
+  .ld-wrap {
+    padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  }
+  .ld-nav-cta {
+    padding: 7px 12px;
+    font-size: 13px;
   }
   .ld-grid,
   .ld-steps {
     grid-template-columns: 1fr;
   }
   .ld-hero {
-    padding-top: 64px;
-    padding-bottom: 56px;
+    padding-top: 56px;
+    padding-bottom: 48px;
   }
   .ld-hero-in {
     flex-direction: column;
@@ -923,8 +1042,19 @@
   .ld-hero-text {
     text-align: center;
   }
+  .ld-hero h1 {
+    font-size: clamp(26px, 8vw, 34px);
+  }
+  .ld-sub {
+    font-size: 15px;
+    margin-bottom: 22px;
+  }
   .ld-cta {
-    justify-content: center;
+    flex-direction: column;
+    justify-content: stretch;
+  }
+  .ld-cta .ld-btn {
+    width: 100%;
   }
   /* 手机上 hero 文案居中，带 icon 的注册实况行跟着居中 */
   .ld-meta {
@@ -934,17 +1064,55 @@
     order: -1;
   }
   .ld-logo {
-    width: 200px;
+    width: min(200px, 56vw);
   }
   .ld-section {
-    padding: 56px 0;
+    padding: 48px 0;
+  }
+  .ld-section h2 {
+    font-size: 22px;
+  }
+  .ld-h2-bar {
+    margin-bottom: 28px;
+  }
+  .ld-card {
+    padding: 18px;
+  }
+  .ld-card:hover {
+    transform: none;
+  }
+  .ld-chip:hover {
+    transform: none;
+  }
+  .ld-faq summary {
+    min-height: 48px;
+    padding: 14px 16px;
+  }
+  .ld-faq details p {
+    padding: 12px 16px 14px;
   }
   .ld-band {
-    padding: 72px 0;
+    padding: 64px 20px;
+  }
+  .ld-band-btn {
+    width: 100%;
+    max-width: 320px;
   }
   .ld-foot-in {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .ld-foot nav {
+    flex-wrap: wrap;
+    gap: 12px 16px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .ld-card:hover,
+  .ld-chip:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm);
   }
 }
 
@@ -952,6 +1120,11 @@
    粒子 logo 同理 —— 页尾脚本只画一层静态粒子，不做物理。
    模板轮播退回折行墙，光标也不再闪。 */
 @media (prefers-reduced-motion: reduce) {
+  .ld-nav nav,
+  .ld-nav-scrim {
+    transition: none;
+    transform: none;
+  }
   .ld .dotmark circle {
     animation: none;
   }

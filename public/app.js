@@ -1269,6 +1269,50 @@ function revealActive(container, selector) {
   on.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' });
 }
 
+function closeNavSheet() {
+  const header = document.querySelector('header.top');
+  if (!header?.classList.contains('nav-open')) return;
+  header.classList.remove('nav-open');
+  document.getElementById('nav-toggle')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('nav-toggle')?.setAttribute('aria-label', '打开菜单');
+  document.body.classList.remove('nav-lock');
+}
+
+function closeNotificationMenu() {
+  const menu = document.getElementById('notification-menu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('notification-toggle')?.setAttribute('aria-expanded', 'false');
+}
+
+function wireNavToggle() {
+  const header = document.querySelector('header.top');
+  const btn = document.getElementById('nav-toggle');
+  if (!header || !btn) return;
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const open = !header.classList.contains('nav-open');
+    header.classList.toggle('nav-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+    btn.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+    document.body.classList.toggle('nav-lock', open);
+    if (open) closeNotificationMenu();
+  };
+  header.querySelector('.nav-scrim')?.addEventListener('pointerdown', closeNavSheet);
+  header.querySelectorAll('nav.tabs a').forEach((a) => a.addEventListener('click', closeNavSheet));
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closeNavSheet();
+  closeNotificationMenu();
+});
+if (typeof matchMedia === 'function') {
+  matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
+    if (!e.matches) closeNavSheet();
+  });
+}
+
 /* ---------------- announcements ---------------- */
 const ANN_CLOSED_KEY = 'lh.announcements.closed';
 
@@ -1441,6 +1485,7 @@ async function toggleNotificationMenu() {
   const opening = menu.hidden;
   menu.hidden = !opening;
   if (!opening) return;
+  closeNavSheet();
   menu.innerHTML = `<div class="notification-loading">${loader({ inline: true })}</div>`;
   try {
     const { notifications } = await api('/auth/notifications?limit=5');
@@ -1456,6 +1501,7 @@ async function toggleNotificationMenu() {
 }
 
 function shell(active, inner) {
+  document.body.classList.remove('nav-lock');
   const admin = state.user.role === 'admin';
   app.className = '';
   app.innerHTML = `
@@ -1463,20 +1509,20 @@ function shell(active, inner) {
       <div class="brand"><span class="brandmark">${icon('boxes')}</span>${esc(
         state.cfg?.panelName || 'localhosting'
       )}</div>
-      <!-- aria-current as well as the .active pill: on a phone this strip is the
-           only navigation, and it marks where you are with colour alone. -->
-      <nav class="tabs">
+      <!-- Desktop: the pill strip. Phone / tablet: the same links restyle into
+           a sheet behind #nav-toggle — eight destinations no longer fit a row. -->
+      <nav class="tabs" id="app-nav">
         <a href="#/instances" class="${active === 'instances' ? 'active' : ''}"${
           active === 'instances' ? ' aria-current="page"' : ''
         }>${icon('boxes')}概览</a>
         <a href="#/new" class="${active === 'new' ? 'active' : ''}"${
           active === 'new' ? ' aria-current="page"' : ''
-        }>${icon('circle-plus')}新建实例</a>
+        }>${icon('circle-plus')}新建</a>
         ${
           state.cfg?.sites?.enabled
             ? `<a href="#/sites" class="${active === 'sites' ? 'active' : ''}"${
                 active === 'sites' ? ' aria-current="page"' : ''
-              }>${icon('globe')}静态站点</a>`
+              }>${icon('globe')}站点</a>`
             : ''
         }
         <a href="#/stats" class="${active === 'stats' ? 'active' : ''}"${
@@ -1492,11 +1538,11 @@ function shell(active, inner) {
           admin
             ? `<a href="#/admin" class="${active === 'admin' ? 'active' : ''}"${
                 active === 'admin' ? ' aria-current="page"' : ''
-              }>${icon('shield')}管理后台${
+              }>${icon('shield')}管理${
                 state.pendingCount ? ` <span class="badge pending">${state.pendingCount}</span>` : ''
               }${
-                // 危险预警比待审批更急：红色角标。手机上藏在标签页里（绝对定位
-                // 的话会跟待审批角标叠在一起），进后台首屏就是预警页的数字。
+                // 危险预警比待审批更急：红色角标。窄屏上菜单是列表，两个角标
+                // 可以并排；顶栏本身不再挤这枚。
                 state.alertCount
                   ? ` <span class="badge dangercnt" title="未处理的危险预警">${icon('triangle-alert')}${state.alertCount}</span>`
                   : ''
@@ -1517,9 +1563,15 @@ function shell(active, inner) {
         </div>
         <div class="avatar">${esc(state.user.username.slice(0, 2).toUpperCase())}</div>
         <span>${esc(state.user.username)}${admin ? ' · 管理员' : ''}</span>
-        <button class="small ghost" id="logout">${icon('log-out')}退出</button>
+        <button class="small ghost" id="logout" aria-label="退出">${icon('log-out')}<span class="logout-label">退出</span></button>
+        <button type="button" class="small ghost nav-toggle" id="nav-toggle" aria-label="打开菜单" aria-expanded="false" aria-controls="app-nav">
+          <span class="nav-toggle-bars">${icon('menu')}</span>
+          <span class="nav-toggle-close">${icon('x')}</span>
+        </button>
       </div>
-    </div></header>
+    </div>
+    <div class="nav-scrim" id="nav-scrim"></div>
+    </header>
     <div class="shell">${announcementBarHtml(state.announcements)}${onboardingBarHtml(active)}${inner}</div>`;
   document.getElementById('logout').onclick = async () => {
     await api('/auth/logout', { method: 'POST' });
@@ -1534,6 +1586,7 @@ function shell(active, inner) {
     await toggleNotificationMenu();
     notificationToggle.setAttribute('aria-expanded', String(!document.getElementById('notification-menu').hidden));
   };
+  wireNavToggle();
   revealActive('header.top nav.tabs', 'a.active');
   wireOnboardingBar();
   wireAnnouncementDismiss();

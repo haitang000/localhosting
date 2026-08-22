@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 const NAMES = [
   // nav / identity
   'boxes', 'circle-plus', 'globe', 'shield', 'circle-user', 'log-out', 'log-in', 'user-plus',
+  'menu',
   'user', 'lock-keyhole', 'ticket', 'layout-dashboard', 'users', 'history', 'server',
   // instance actions
   'play', 'square', 'rotate-cw', 'power', 'trash-2', 'undo-2', 'arrow-right', 'arrow-left',

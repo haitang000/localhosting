@@ -92,6 +92,8 @@ const ICONS = {
   package: '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   'key-round': '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+  menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 };
 
 /* 模板分类 → icon：label 与 templates.js 的 category 同名；没列到的分类退回 grid */
@@ -366,14 +368,19 @@ export function renderLanding({
     <header class="ld-nav">
       <div class="ld-wrap ld-nav-in">
         <a class="ld-brand" href="/">${dotMark(name, { id: '-nav' })}<b>${esc(name)}</b></a>
-        <nav aria-label="页面导航">
+        <nav id="ld-nav-links" aria-label="页面导航">
           <a href="#templates">模板</a>
           <a href="#features">特性</a>
           <a href="#flow">流程</a>
           <a href="#faq">常见问题</a>
         </nav>
-        <a class="ld-btn ghost" href="/login">进入面板</a>
+        <a class="ld-btn ghost ld-nav-cta" href="/login">进入面板</a>
+        <button type="button" class="ld-nav-toggle" id="ld-nav-toggle" aria-label="打开菜单" aria-expanded="false" aria-controls="ld-nav-links">
+          <span class="ld-nav-bars">${icon('menu')}</span>
+          <span class="ld-nav-close">${icon('x')}</span>
+        </button>
       </div>
+      <div class="ld-nav-scrim" id="ld-nav-scrim"></div>
     </header>
 
     <main>
@@ -499,6 +506,36 @@ export function renderLanding({
     <script src="/vendor/ScrollTrigger.min.js"></script>
     <script src="/landing-hero.js"></script>
     <script src="/landing-scroll.js"></script>
+    <script>
+      (function () {
+        var header = document.querySelector('.ld-nav');
+        var btn = document.getElementById('ld-nav-toggle');
+        if (!header || !btn) return;
+        function setOpen(open) {
+          header.classList.toggle('is-open', open);
+          btn.setAttribute('aria-expanded', String(open));
+          btn.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+          document.body.classList.toggle('ld-nav-lock', open);
+        }
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          setOpen(!header.classList.contains('is-open'));
+        });
+        header.querySelectorAll('#ld-nav-links a').forEach(function (a) {
+          a.addEventListener('click', function () { setOpen(false); });
+        });
+        var scrim = document.getElementById('ld-nav-scrim');
+        if (scrim) scrim.addEventListener('click', function () { setOpen(false); });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') setOpen(false);
+        });
+        if (window.matchMedia) {
+          window.matchMedia('(max-width: 900px)').addEventListener('change', function (e) {
+            if (!e.matches) setOpen(false);
+          });
+        }
+      })();
+    </script>
   </body>
 </html>
 `;

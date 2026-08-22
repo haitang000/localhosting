@@ -443,10 +443,10 @@ nav.tabs a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: var(--radius-sm);
   color: var(--default-500);
-  font-size: 13.5px;
+  font-size: 13px;
   /* The track wraps once the row stops fitting, and without this a label would be
       broken between characters instead of the row breaking between items: 概览
      becomes a four-character column. Wrap the items, never the words. This is the
@@ -475,6 +475,15 @@ nav.tabs a.active {
   font-size: 13px;
   color: var(--default-500);
   white-space: nowrap;
+}
+/* Hidden on desktop: the pill strip still fits. Phone / tablet restyle
+   nav.tabs into a sheet and reveal these. */
+.nav-toggle,
+.nav-scrim {
+  display: none;
+}
+.nav-toggle-close {
+  display: none;
 }
 .notification-wrap {
   position: relative;
@@ -3829,9 +3838,12 @@ dialog.terms .terms-doc {
    Three separate questions, so three separate queries — they only coincide on a
    phone, and each is wrong on its own for something:
 
-     (max-width: 640px)   LAYOUT: a narrow screen. 640 is the one layout
-                          breakpoint in this file; the three older 620px blocks
-                          were folded into it so there is a single number.
+     (max-width: 900px)   NAV: eight destinations no longer share a row with
+                          the brand and the account cluster. The pill strip
+                          becomes a sheet; page layout stays as it is.
+     (max-width: 640px)   LAYOUT: a narrow screen. 640 is still the page-layout
+                          breakpoint; the three older 620px blocks were folded
+                          into it so there is a single number for gutters.
      (pointer: coarse)    INPUT: a finger, whatever the width. A touch laptop
                           matches only this one and still needs 44px targets and
                           16px fields.
@@ -3843,6 +3855,128 @@ dialog.terms .terms-doc {
    three queries, and a 1440×900 mouse-driven browser matches none of them.
    =========================================================================== */
 
+@media (max-width: 900px) {
+  /* ---- header stays one row; destinations live in a sheet ----
+     Brand + account cluster + the menu button. The same <nav class="tabs">
+     becomes a popover under the toggle so eight items stay readable and
+     44px tall, instead of shrinking into an unscrolled row of smudges. */
+  .spacer {
+    display: none;
+  }
+  header.top .inner {
+    position: relative;
+    z-index: 2;
+    flex-wrap: nowrap;
+    gap: 10px 12px;
+  }
+  .brand {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .whoami {
+    flex: none;
+    margin-left: auto;
+    min-width: 0;
+    gap: 6px;
+  }
+  .whoami > span {
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nav-toggle {
+    display: inline-flex;
+    min-width: 36px;
+    padding-inline: 8px;
+  }
+  header.top.nav-open .nav-toggle-bars {
+    display: none;
+  }
+  header.top.nav-open .nav-toggle-close {
+    display: contents;
+  }
+  nav.tabs {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    width: min(320px, 100%);
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+    max-height: min(480px, calc(100dvh - 88px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 8px;
+    background: var(--content1);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top right;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 220ms var(--ease-out),
+      transform 220ms var(--ease-out),
+      visibility 220ms;
+  }
+  header.top.nav-open nav.tabs {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  nav.tabs a {
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+  nav.tabs a .ico {
+    width: 18px;
+    height: 18px;
+  }
+  nav.tabs a.active {
+    background: var(--default-100);
+    box-shadow: none;
+  }
+  /* In a list the two admin chips can sit after the label instead of stacking
+     on the glyph. Keep them in flow. */
+  nav.tabs .badge.pending,
+  nav.tabs .badge.dangercnt {
+    margin-left: auto;
+  }
+  .nav-scrim {
+    /* header.top has backdrop-filter, so `fixed` would only cover the bar.
+       Stretch from just under the header instead. */
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 100dvh;
+    z-index: 1;
+    background: var(--overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms var(--ease-out);
+  }
+  header.top.nav-open .nav-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  body.nav-lock {
+    overflow: hidden;
+  }
+}
+
 @media (max-width: 640px) {
   /* ---- page frame: less gutter, less padding, more content ---- */
   .shell {
@@ -3853,98 +3987,29 @@ dialog.terms .terms-doc {
     margin-bottom: 20px;
   }
   header.top .inner {
-    gap: 8px 12px;
+    gap: 8px 10px;
     padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
   }
-  /* ---- header in two rows ----
-     Identity on the first row, the five destinations on the second. Letting the
-     row wrap (see flex-wrap on header.top .inner) is what keeps the bar's
-     min-content from becoming the layout viewport and scaling every page down;
-     this block decides what the second row looks like.
-     .spacer is the desktop's flex:1 gap and only gets in the way here. */
-  .spacer {
-    display: none;
-  }
-  /* Equal fifths, glyph over label, and deliberately NOT a scroller. Stacked, a
-     tab costs ~55px instead of ~100, so all five fit a 320px screen: nothing
-     hides behind a swipe on a track whose scrollbar is invisible, and there is no
-     scroll container to clip the active pill's shadow out of 3px of padding. The
-      labels stay — the glyphs cannot carry these five alone, 概览 and 新建实例
-     differ by one character. */
-  nav.tabs {
-    order: 3;
-    width: 100%;
-    /* one line of five; wrapping would give two ragged rows instead */
-    flex-wrap: nowrap;
-    padding: 3px;
-  }
-  nav.tabs a {
-    /* the pending count is taken out of flow below and anchors to this box */
-    position: relative;
-    /* `1 1 0`, not `1 1 auto`: equal fifths, so 账号 is as easy to hit as
-        概览 — otherwise the shortest label is the smallest target. */
-    flex: 1 1 0;
-    min-width: 0;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    /* the 44px floor; an 18px glyph over an 11px label lands there anyway */
-    min-height: 44px;
-    padding: 5px 3px;
-    font-size: 11px;
-    line-height: 1.2;
-  }
-  /* .ico is 1.02em everywhere else, which under an 11px label is a smudge. */
-  nav.tabs a .ico {
-    width: 18px;
-    height: 18px;
-  }
-  /* The 待审 count rides the glyph's corner rather than following the label: in
-     flow it becomes a third line and costs the sticky bar another 15px on every
-     page. Solid rather than the flat primary tint, because a translucent chip
-     over a glyph this small reads as a smudge, and the ring is what cuts it out
-     of the track — or out of the active pill, which is a different colour. */
-  nav.tabs .badge.pending {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 16px;
-    padding: 0 4px;
-    justify-content: center;
-    font-size: 10px;
-    line-height: 16px;
-    background: var(--primary);
-    color: #fff;
-    box-shadow: 0 0 0 2px var(--default-100);
-  }
-  nav.tabs a.active .badge.pending {
-    box-shadow: 0 0 0 2px var(--content1);
-  }
-  /* 手机上预警角标也走绝对定位会跟待审批角标叠在一处；藏掉它 —— 管理后台
-     预警页的标签数字还在，只是顶栏不重复这一条。 */
-  nav.tabs .badge.dangercnt {
-    display: none;
-  }
   /* The username gives way, the 退出 button never does — it used to be pushed
-     clean off the right edge by a long name, with no way to scroll to it. */
-  .whoami {
-    margin-left: auto;
-    min-width: 0;
-    gap: 8px;
+     clean off the right edge by a long name, with no way to scroll to it.
+     Initials live on the 账号 row inside the sheet. */
+  .avatar,
+  .whoami > span,
+  .logout-label {
+    display: none;
   }
-  .whoami > span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  #logout {
+    min-width: 44px;
+    padding-inline: 8px;
   }
-  /* Under ~420px the name cannot share a row with the wordmark and the 退出
-     button at all, and an ellipsis on two characters is not information — so it
-     goes. The avatar still carries the initials, and 账号 spells it out. */
-  @media (max-width: 420px) {
-    .whoami > span {
-      display: none;
-    }
+  /* Bell is no longer the rightmost control, so a right-anchored popover
+     would run off the left edge. Pin it to the viewport under the bar. */
+  .notification-menu {
+    position: fixed;
+    top: 58px;
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    width: auto;
   }
   /* Nested inside the width query on purpose, against this file's "input is not a
      width question" split: 退出 is the one .small button that is also a one-way
